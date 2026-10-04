@@ -1,0 +1,51 @@
+[project]
+name = "local-media-downloader"
+version = "0.1.0"
+description = "Download and transform media locally from almost any supported URL."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["local-media-downloader-api"]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["apps/api"]
+
+[tool.uv.sources]
+local-media-downloader-api = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "httpx>=0.27",
+    "pyright>=1.1.390",
+    "pytest>=8.3",
+    "ruff>=0.6",
+]
+
+[tool.ruff]
+line-length = 100
+src = ["apps/api/src", "apps/api/tests"]
+target-version = "py312"
+extend-exclude = [".agent", ".claude", ".opencode", "data", "graphify-out"]
+
+[tool.ruff.format]
+line-ending = "lf"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["local_media_downloader"]
+
+[tool.pyright]
+include = ["apps/api/src", "apps/api/tests"]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["apps/api/tests"]
+addopts = "-ra --strict-markers --strict-config"

@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Local Media Downloader",
+  "version": "0.1.0",
+  "description": "Send the current page URL to the local media downloader service.",
+  "permissions": ["activeTab", "storage"],
+  "action": {
+    "default_title": "Local Media Downloader",
+    "default_popup": "src/popup/index.html"
+  },
+  "background": {
+    "service_worker": "src/background/index.js",
+    "type": "module"
+  }
+}

@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+.venv/
+uv.lock
+pnpm-lock.yaml
+graphify-out/
+data/
+.agent/
+.claude/
+.opencode/
+apps/api/
+*.md

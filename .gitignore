@@ -99,7 +99,7 @@ ipython_config.py
 #   Similar to Pipfile.lock, it is generally recommended to include uv.lock in version control.
 #   This is especially recommended for binary packages to ensure reproducibility, and is more
 #   commonly ignored for libraries.
-# uv.lock
+# uv.lock  (DESCOMENTADO A PROPÓSITO: uv.lock SÍ se versiona — CI usa `uv sync --locked`)
 
 # poetry
 #   Similar to Pipfile.lock, it is generally recommended to include poetry.lock in version control.
@@ -218,3 +218,72 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- local-media-downloader ---
+
+# Node / pnpm
+node_modules/
+.pnpm-store/
+*.tsbuildinfo
+
+# Build output (dist/ ya está cubierto arriba; se repite explícito por claridad)
+apps/web/dist/
+apps/extension/dist/
+
+# Runtime data (app.db, jobs/<id>/, cache/, logs/)
+data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Local environment / secretos
+.env
+.env.*
+*.env
+!.env.example
+*.local
+*.pem
+*.key
+*.pfx
+*.p12
+
+# Agentes y herramientas locales (contienen rutas absolutas de esta máquina,
+# ej. C:/Users/<usuario>/... en .claude/settings.json, y librerías de skills
+# vendorizadas). El grafo de graphify se regenera solo con su hook post-commit.
+.claude/
+.opencode/
+graphify-out/
+.agent/local/
+
+# Tooling caches
+.vitest/
+.eslintcache
+*.lcov
+
+# Archivos temporales y de merge
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+*.swp
+*.swo
+*~
+tmp/
+temp/
+
+# Coverage (htmlcov/ y .coverage* ya están arriba)
+coverage/
+
+# Editors / OS
+.idea/
+.vscode/
+*.code-workspace
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+$RECYCLE.BIN/
+*.lnk
