@@ -8,7 +8,9 @@ import pytest
 from local_media_downloader.db import initialize
 from local_media_downloader.job_state import InvalidTransition, JobState
 from local_media_downloader.jobs import (
+    MAX_PAGE_SIZE,
     create_job,
+    cursor_of,
     find_active_jobs,
     get_events,
     get_job,
@@ -122,6 +124,73 @@ def test_list_jobs_filters_by_state_and_orders_by_priority(conn) -> None:
 
     everything = list_jobs(conn)
     assert [j.id for j in everything] == [high.id, low.id]
+
+
+def test_list_jobs_requires_a_positive_limit(conn) -> None:
+    with pytest.raises(ValueError):
+        list_jobs(conn, limit=0)
+
+
+def test_list_jobs_caps_the_page_size(conn) -> None:
+
+    assert list_jobs(conn, limit=MAX_PAGE_SIZE * 10) == list_jobs(conn, limit=MAX_PAGE_SIZE)
+
+
+def test_cursor_pagination_visits_every_job_exactly_once(conn) -> None:
+    """Keyset pagination must not skip or duplicate rows.
+
+    This is why `id` is the final ORDER BY term: created_at has millisecond
+    resolution, so a page boundary can easily land on two rows that compare
+    equal on (priority, created_at).
+    """
+    created = [create_job(conn, source_url=f"https://a.example/{i}") for i in range(25)]
+
+    seen: list[str] = []
+    cursor = None
+    while True:
+        page = list_jobs(conn, limit=7, cursor=cursor)
+        if not page:
+            break
+        seen.extend(j.id for j in page)
+        cursor = cursor_of(page[-1])
+
+    assert len(seen) == len(set(seen)), "a job was returned twice"
+    assert set(seen) == {j.id for j in created}
+
+
+def test_cursor_pagination_holds_when_sort_keys_collide(conn) -> None:
+    """Force identical (priority, created_at) so only `id` can break the tie."""
+    ids = []
+    for i in range(10):
+        job = create_job(conn, source_url=f"https://a.example/{i}", priority=0)
+        ids.append(job.id)
+    # Collapse every timestamp and priority onto one value.
+    conn.execute("UPDATE jobs SET created_at = '2026-01-01T00:00:00.000+00:00', priority = 0")
+
+    seen: list[str] = []
+    cursor = None
+    while True:
+        page = list_jobs(conn, limit=3, cursor=cursor)
+        if not page:
+            break
+        seen.extend(j.id for j in page)
+        cursor = cursor_of(page[-1])
+
+    assert len(seen) == len(set(seen))
+    assert set(seen) == set(ids)
+
+
+def test_cursor_is_respected_when_filtering_by_state(conn) -> None:
+    ready = create_job(conn, source_url="https://a.example/r")
+    transition(conn, ready.id, JobState.RESOLVING)
+    transition(conn, ready.id, JobState.READY)
+    create_job(conn, source_url="https://a.example/q")
+
+    page = list_jobs(conn, states={JobState.READY}, limit=1)
+    assert [j.id for j in page] == [ready.id]
+    # A different filter must not leak rows through the cursor.
+    rest = list_jobs(conn, states={JobState.CREATED}, limit=1, cursor=cursor_of(page[0]))
+    assert [j.id for j in rest] != [ready.id]
 
 
 def test_transition_unknown_job_raises(conn) -> None:

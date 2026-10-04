@@ -73,6 +73,49 @@ Los 3 tests live pasan. El bug del punto 3 se detectó justamente con esta corri
 prettier, svelte-check+tsc, vitest, ambos builds. Prettier detectó `pnpm-workspace.yaml`
 sin formatear y lo corregí antes de commitear.
 
+### Addendum 5 — Auditoría de SQL ( playbook cloud aplicado con criterio)
+
+El usuario recomendó 6 prácticas de un proyecto previo (donde un mal indexado costó
+500M de reads en Postgres serverless). Todas evaluadas **con medición, no de opinión**:
+`EXPLAIN QUERY PLAN` + timing sobre 5.000 / 50.000 / 200.000 jobs.
+
+**Se aplicaron (2, y ambas escondían algo real):**
+- **Paginación por cursor sin `OFFSET`** → bug latente: `ORDER BY priority DESC,
+  created_at` no tenía desempate único. `created_at` tiene resolución de milisegundos,
+  así que un keyset cursor saltaba o duplicaba filas en los bordes de página. Ahora el
+  orden es `(priority DESC, created_at DESC, id DESC)`, hay `JobCursor`/`cursor_of()` y
+  `MAX_PAGE_SIZE=500`. Tests que fuerzan colisiones totales de `(priority, created_at)`
+  para probar que no hay skips ni duplicados.
+- **`idx_jobs_sort`** (migración v2) — el único índice más allá de columnas de WHERE/JOIN.
+  Quita el TEMP B-TREE de `list_jobs`: página superficial **26.10 ms → 0.18 ms (145x)**,
+  profunda 12.92 → 5.86 ms, a cambio de 3.7 → 4.0 µs/fila en transiciones (+8%).
+
+**Se rechazaron con motivo escrito (4):**
+- **Caché de endpoints** (`s-maxage`, CDN, Redis): no hay CDN — la app liga a loopback.
+  Cachear el estado de jobs 60 s mostraría al usuario un job viejo, contradiciendo el
+  progreso en vivo por SSE. Redis prohibido por principio #33. Lo que sí se agregó es lo
+  opuesto: `Cache-Control: no-store` en todas las respuestas.
+- **Connection pooling** (PgBouncer, Prisma Accelerate): es para Postgres serverless.
+  Acá hay un worker Granian con una conexión SQLite en `app.state.db`.
+- **Rate limiting con Upstash Redis**: los bots no rastrean 127.0.0.1. El riesgo real es
+  una página web local pegándole a la API → Origin validation + token local, ya
+  planificado para Fase 10.
+- **Índices indiscriminados**: probé dos (`(state, priority, created_at)` y
+  `(updated_at)`); NO quitaron el temp b-tree (un `IN` multi-estado no se sirve con un
+  índice compuesto así) y costaron **3x** en escrituras (10.2 vs 3.5 µs/fila). Descartados.
+
+**Dato de contexto que reencuadra todo:** el costo del escaneo total de `jobs` es 5k=1.0 ms
+· 50k=11 ms · 200k=44 ms. El escaneo nunca fue el problema; **el sort sí**. Por eso la
+regla de oro es: "SCAN TABLE" no es un bug por sí mismo, "TEMP B-TREE FOR ORDER BY" en una
+consulta paginada sí lo es. → Regla de Oro 1.4.
+
+**Nuevo test permanente:** `test_query_plans.py` asserta que los hot paths usan índice y
+que `list_jobs`/cursor no tengan temp sort, con las mediciones documentadas en el
+docstring para que nadie re-agre los índices descartados.
+
+**Verificado:** migración v2 aplicada sobre `data/app.db` real (schema v1 → v2),
+`list_jobs` en 0.03 ms. Gates: ruff, pyright 0, pytest 141/141.
+
 ### Chequeo final PROTOCOLO_SALIDA
 
 - [x] 1 sola sesión en detalle (Sesión 4). Sesiones 1-3 comprimidas en historial con

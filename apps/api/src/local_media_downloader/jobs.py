@@ -26,6 +26,20 @@ def hash_url(url: str) -> str:
     return hashlib.sha256(url.encode("utf-8")).hexdigest()
 
 
+# A history page never needs more than this; the cap keeps a single request from
+# turning into a full table read.
+MAX_PAGE_SIZE = 500
+
+
+@dataclass(frozen=True, slots=True)
+class JobCursor:
+    """Keyset position: the sort key of the last row the caller already saw."""
+
+    priority: int
+    created_at: str
+    id: str
+
+
 @dataclass(frozen=True, slots=True)
 class Job:
     id: str
@@ -117,19 +131,49 @@ def list_jobs(
     *,
     states: set[JobState] | None = None,
     limit: int = 100,
+    cursor: JobCursor | None = None,
 ) -> list[Job]:
+    """List jobs newest-first by priority, with keyset (cursor) pagination.
+
+    OFFSET is never used: it makes SQLite re-walk and discard every skipped row,
+    which is O(offset) per page. A cursor instead resumes from the last row the
+    caller saw, so page N costs the same as page 1.
+
+    ``id`` is the final ORDER BY term on purpose. Without a unique tiebreaker the
+    sort is not deterministic when ``priority`` and ``created_at`` collide
+    (created_at has millisecond resolution, so collisions are normal), and a
+    keyset cursor would silently skip or duplicate rows.
+    """
+    if limit < 1:
+        raise ValueError("limit must be >= 1")
+    # Clamp so a hostile or buggy caller cannot ask for the whole table.
+    limit = min(limit, MAX_PAGE_SIZE)
+
+    where: list[str] = []
+    params: list[object] = []
     if states:
-        placeholders = ",".join("?" for _ in states)
-        rows = conn.execute(
-            f"SELECT * FROM jobs WHERE state IN ({placeholders})"
-            " ORDER BY priority DESC, created_at LIMIT ?",
-            (*(s.value for s in states), limit),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT * FROM jobs ORDER BY priority DESC, created_at LIMIT ?", (limit,)
-        ).fetchall()
-    return [Job.from_row(r) for r in rows]
+        where.append(f"state IN ({','.join('?' for _ in states)})")
+        params.extend(s.value for s in states)
+    if cursor is not None:
+        where.append(
+            "(priority < ? OR (priority = ? AND (created_at < ? OR (created_at = ? AND id < ?))))"
+        )
+        params.extend(
+            [cursor.priority, cursor.priority, cursor.created_at, cursor.created_at, cursor.id]
+        )
+
+    sql = "SELECT * FROM jobs"
+    if where:
+        sql += f" WHERE {' AND '.join(where)}"
+    sql += " ORDER BY priority DESC, created_at DESC, id DESC LIMIT ?"
+    params.append(limit)
+
+    return [Job.from_row(row) for row in conn.execute(sql, params).fetchall()]
+
+
+def cursor_of(job: Job) -> JobCursor:
+    """Build the cursor pointing just past ``job``."""
+    return JobCursor(priority=job.priority, created_at=job.created_at, id=job.id)
 
 
 def _record_event(

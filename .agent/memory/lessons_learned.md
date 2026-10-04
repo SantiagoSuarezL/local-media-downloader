@@ -51,3 +51,16 @@ en Windows — un commit con un JSON mal formateado aborta con exit 1. (2) Los m
 siguen corriendo en CI.
 
 **Regla de Oro:** *Después de escribir o editar cualquier archivo, corré su formateador y `format:check` antes de commitear; ningún archivo nuevo llega al commit sin pasar por Prettier o Ruff.*
+
+### Regla de Oro 1.4 [Rendimiento]: el playbook de índices cloud no se transfiere; medir antes de aceptar o rechazar
+
+**Error:** el usuario mencionó un proyecto previo donde una decisión de indexado costó 500M de reads y agotó el límite gratuito mensual de su base de datos serverless. Propuso seis prácticas: índices obligatorios más `EXPLAIN QUERY PLAN`, caché de endpoints con `s-maxage` y Redis, batching, paginación por cursor en vez de `OFFSET`, connection pooling con PgBouncer, y rate limiting con Upstash. El impulso natural es aplicarlas las seis.
+
+**Root Cause:** ese incidente era Postgres serverless, donde cada read se factura. Esta app es un monolito local que liga sólo a loopback: **no hay metering, no hay CDN, no hay serverless, no hay Redis**. Aplicar las reglas sin traducir el modelo de costos habría causado daño real — cuatro de las seis son activamente dañinas o irrelevantes acá. Y al medir, las prácticas 1 y 4 escondían un bug que leer el código no había revelado.
+
+**Solución** (todo medido con `EXPLAIN QUERY PLAN` + timing, no de opinión):
+- *Se aplican*: `idx_jobs_sort(priority DESC, created_at DESC, id DESC)` — quita el TEMP B-TREE de `list_jobs`, página superficial 26.10 ms → **0.18 ms** (145x), profunda 12.92 → 5.86 ms, a costa de 3.7 → 4.0 µs/fila en transiciones (+8%). Y paginación por cursor con `id` como desempate único: `created_at` tiene resolución de milisegundos, así que sin desempate el keyset saltaba o duplicaba filas (bug real, ahora cubierto por tests que fuerzan colisiones).
+- *Se rechazan con motivo*: caché de endpoints (rompería el estado en vivo que SSE promete; Redis prohibido por principio #33), connection pooling (PgBouncer es para Postgres serverless; aquí hay un worker y una conexión), rate limiting con Redis (el riesgo real es una web local pegándole a la API, que se resuelve con Origin validation + token en Fase 10), e índices indiscriminados (se probaron dos y se descartaron: no quitaron el temp b-tree y costaron **3x** en escrituras, 10.2 vs 3.5 µs/fila).
+- Costo real del escaneo total para contexto: 5k jobs 1.0 ms · 50k 11 ms · 200k 44 ms. Un full scan aquí es barato; el problema nunca fue el scan, fue el **sort**.
+
+**Regla de Oro:** *Cada regla de un playbook cloud se evalúa contra el modelo de costos de ESTE proyecto antes de aplicarse: indexar sólo lo que un `EXPLAIN QUERY PLAN` + medición demuestren, y rechazar con motivo escrito lo que no aplique. "SCAN TABLE" no es un bug por sí mismo; "TEMP B-TREE FOR ORDER BY" en una consulta paginada sí lo es.*

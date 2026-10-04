@@ -8,10 +8,10 @@ later phases; nothing here calls yt-dlp or FFmpeg directly.
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -36,6 +36,13 @@ _ERROR_INTERNAL = "INTERNAL_ERROR"
 # likely. The pinned version lives in uv.lock; this is the "too old to trust"
 # line and it only ever moves forward.
 _MINIMUM_YTDLP_VERSION = (2026, 1, 1)
+
+# The service binds to loopback only: there is no CDN and nothing to cache for.
+# Every response is live state (jobs, progress, settings), so an intermediary
+# cache would show the user a stale job — the opposite of what the SSE stream
+# promises. `no-store` also keeps media URLs and error detail out of browser
+# caches on a shared machine.
+_NO_STORE = {"Cache-Control": "no-store"}
 
 
 def _error_payload(code: str, message: str) -> dict[str, object]:
@@ -157,6 +164,15 @@ def create_app(
         return JSONResponse(
             status_code=500, content=_error_payload(_ERROR_INTERNAL, "internal error")
         )
+
+    @app.middleware("http")
+    async def no_store(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        """Mark every API response as uncacheable (see _NO_STORE)."""
+        response = await call_next(request)
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.get("/")
     def root() -> dict[str, str]:

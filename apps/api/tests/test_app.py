@@ -57,3 +57,11 @@ def test_root_points_to_health(client: TestClient) -> None:
 
 def test_startup_creates_the_database_file(client: TestClient, tmp_path) -> None:
     assert (tmp_path / "data" / "app.db").exists()
+
+
+def test_responses_are_never_cacheable(client: TestClient) -> None:
+    """Loopback service with live state: an intermediary cache would show a
+    stale job, contradicting the SSE progress stream. No CDN exists here."""
+    for path in ("/", "/api/v1/health", "/api/v1/nope"):
+        response = client.get(path)
+        assert response.headers["Cache-Control"] == "no-store", path
