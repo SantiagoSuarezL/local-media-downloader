@@ -8,7 +8,6 @@ extraction against a URL, so it is safe to call on every health check.
 from __future__ import annotations
 
 import shutil
-import sqlite3
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -69,27 +68,6 @@ def detect_tools(timeout: float = 2.0) -> dict[str, ToolStatus]:
         "ffmpeg": status("FFmpeg", ffmpeg),
         "ffprobe": status("FFprobe", ffprobe),
     }
-
-
-def database_ready(database_path: Path, timeout: float = 2.0) -> tuple[bool, str]:
-    """Return (ok, detail). No schema exists in Phase 1; this validates that the
-    sqlite3 driver works and the target directory is writable for when the schema
-    lands in Phase 2. Nothing is persisted — the probe file is a temporary
-    in-memory database."""
-    try:
-        with sqlite3.connect(":memory:") as conn:
-            conn.execute("SELECT 1")
-    except sqlite3.Error as exc:  # pragma: no cover - environment anomaly
-        return False, f"sqlite3 unavailable: {exc}"
-    parent = database_path.parent
-    try:
-        parent.mkdir(parents=True, exist_ok=True)
-        probe = parent / ".write-probe"
-        probe.write_text("ok", encoding="utf-8")
-        probe.unlink()
-    except OSError as exc:
-        return False, f"storage dir not writable: {exc}"
-    return True, "ok"
 
 
 def storage_ready(data_dir: Path) -> tuple[bool, str]:

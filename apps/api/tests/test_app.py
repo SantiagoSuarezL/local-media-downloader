@@ -1,21 +1,24 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 
+import pytest
 from fastapi.testclient import TestClient
 
 from local_media_downloader.app import create_app
 from local_media_downloader.config import Settings
 
 
-def _client(tmp_path, monkeypatch) -> TestClient:
+@pytest.fixture
+def client(tmp_path, monkeypatch) -> Iterator[TestClient]:
     monkeypatch.setenv("LMD_DATA_DIR", str(tmp_path / "data"))
     settings = Settings.from_env()
-    return TestClient(create_app(settings))
+    with TestClient(create_app(settings)) as test_client:
+        yield test_client
 
 
-def test_health_reports_versions_and_statuses(tmp_path, monkeypatch) -> None:
-    client = _client(tmp_path, monkeypatch)
+def test_health_reports_versions_and_statuses(client: TestClient) -> None:
     response = client.get("/api/v1/health")
     assert response.status_code == 200
     body = response.json()
@@ -24,11 +27,9 @@ def test_health_reports_versions_and_statuses(tmp_path, monkeypatch) -> None:
     assert body["version"] == "0.1.0"
     assert body["status"] == "ok"
 
-    database = body["database"]
-    assert database["status"] == "ok"
-
-    storage = body["storage"]
-    assert storage["status"] == "ok"
+    assert body["database"]["status"] == "ok"
+    assert body["database"]["detail"].startswith("ok (schema v")
+    assert body["storage"]["status"] == "ok"
 
     tools = body["tools"]
     for name in ("yt_dlp", "yt_dlp_ejs", "deno", "ffmpeg", "ffprobe"):
@@ -38,21 +39,21 @@ def test_health_reports_versions_and_statuses(tmp_path, monkeypatch) -> None:
             assert isinstance(tools[name]["version"], str)
 
 
-def test_health_does_not_leak_filesystem_paths(tmp_path, monkeypatch) -> None:
-    client = _client(tmp_path, monkeypatch)
-    response = client.get("/api/v1/health")
-    payload = json.dumps(response.json())
-    assert str(tmp_path) not in payload
+def test_health_does_not_leak_filesystem_paths(client: TestClient) -> None:
+    payload = json.dumps(client.get("/api/v1/health").json())
     assert "data_dir" not in payload
+    assert "app.db" not in payload
 
 
-def test_unknown_route_uses_structured_error(tmp_path, monkeypatch) -> None:
-    client = _client(tmp_path, monkeypatch)
+def test_unknown_route_uses_structured_error(client: TestClient) -> None:
     response = client.get("/api/v1/nope")
     assert response.status_code == 404
     assert response.json() == {"error": {"code": "NOT_FOUND", "message": "Not Found"}}
 
 
-def test_root_points_to_health(tmp_path, monkeypatch) -> None:
-    client = _client(tmp_path, monkeypatch)
+def test_root_points_to_health(client: TestClient) -> None:
     assert client.get("/").json()["health"] == "/api/v1/health"
+
+
+def test_startup_creates_the_database_file(client: TestClient, tmp_path) -> None:
+    assert (tmp_path / "data" / "app.db").exists()

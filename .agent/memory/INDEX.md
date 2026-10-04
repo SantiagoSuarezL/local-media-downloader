@@ -5,8 +5,8 @@
 ## Estado del proyecto
 
 **Proyecto:** local-media-downloader
-**Fase actual:** 2
-**Próxima fase:** 3 — yt-dlp adapter
+**Fase actual:** 3
+**Próxima fase:** 4 — FFmpeg/FFprobe adapters
 
 ## Tabla de archivos
 
