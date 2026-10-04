@@ -6,6 +6,52 @@
 
 ## Archivo de sesiones
 
+### Sesión 3 — 2026-10-04 — space-bunny-free vía OpenCode (PowerShell/Windows)
+
+#### Fase 2 — SQLite + job state machine: completada
+
+**Módulos nuevos en `apps/api`:**
+- `job_state.py` — `JobState(StrEnum)` con los 14 estados del plan, tabla de
+  transiciones válidas, `ACTIVE_STATES` (RESOLVING/DOWNLOADING/PROCESSING/
+  VALIDATING/COMMITTING), `TERMINAL_STATES`, `can_transition`/`assert_transition`
+  e `InvalidTransition` (fail explícito, nunca UNKNOWN_ERROR).
+- `migrations.py` — migraciones append-only `(version, description, sql)` aplicadas
+  con `PRAGMA user_version`. Migración v1 crea `jobs`, `job_events`, `settings` con
+  las columnas del spec (incluye `source_url_hash`, `priority`, `attempt_count`).
+- `db.py` — `connect()` (WAL, `foreign_keys=ON`, `synchronous=NORMAL`,
+  `isolation_level=None`), `initialize()` idempotente, contextmanager `transaction()`
+  con `BEGIN IMMEDIATE`/`ROLLBACK`/`COMMIT`, `schema_version()`.
+- `jobs.py` — `Job` dataclass + repositorio: `create_job`, `get_job`, `list_jobs`,
+  `transition` (valida, actualiza estado y graba el evento en la MISMA transacción),
+  `find_active_jobs`, `get_events`, `hash_url`.
+
+**Integración:** `app.py` ahora usa `lifespan` async — abre la DB al startup, loguea
+`database_ready` con la versión de schema y la cierra al shutdown. `health` reporta la
+DB real (`ok (schema v1)`) en vez del probe en memoria; se borró `database_ready()` de
+`diagnostics.py` por quedar muerto.
+
+**Tests (37 en total):** `test_job_state.py`, `test_db.py`, `test_jobs.py` (CRUD,
+transición atómica con evento, transición ilegal no cambia el estado, ciclo completo a
+COMPLETED, payload sin URL, filtros por estado, cascada al borrar, y recovery tras
+"terminación del proceso"). `test_app.py` actualizado a fixture con lifespan.
+
+**Dos tests fallaron al escribirlos (lección de diseño, no de código):**
+1. Escribí `TERMINAL_STATES` incluyendo FAILED y un test que exigía "terminal sin
+   salidas". Contradice el endpoint `POST /jobs/{id}/retry` del spec. Corrección:
+   FAILED es terminal *para ese intento* y sólo puede reentrar explícitamente por
+   `RETRY_WAIT`; el test ahora codifica esa excepción.
+2. Conté mal los eventos del scenario de recovery (8 en vez de 7).
+
+**Verificado en vivo contra `data/app.db`:** job real llevado a DOWNLOADING, cierre de
+conexión simulando muerte del proceso, reapertura → el job aparece en
+`find_active_jobs`, se reconcilia a RECOVERY_REQUIRED y luego a QUEUED (7 eventos).
+`PRAGMA journal_mode` = `wal`, `user_version` = 1, en disco quedaron `app.db-wal` +
+`app.db-shm`. Acceptance cumplida.
+
+**Grafo:** `graphify update . --force` → 385 nodos, 568 aristas, 23 comunidades.
+
+---
+
 ### Sesión 2 — 2026-10-04 — space-bunny-free vía OpenCode (PowerShell/Windows)
 
 #### Fase 1 completada

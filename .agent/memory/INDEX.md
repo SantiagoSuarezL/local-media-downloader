@@ -5,8 +5,8 @@
 ## Estado del proyecto
 
 **Proyecto:** local-media-downloader
-**Fase actual:** 3
-**Próxima fase:** 4 — FFmpeg/FFprobe adapters
+**Fase actual:** 4
+**Próxima fase:** 5 — Execution planner
 
 ## Tabla de archivos
 

@@ -11,7 +11,7 @@
 - [x] **Fase 0** — Repository foundation (monorepo, uv, pnpm, Svelte 5 + Vite + Tailwind, extension build, CI) — ver `session_log.md` Sesión 1
 - [x] **Fase 1** — Local service skeleton (FastAPI + Granian, /api/v1/health con yt-dlp/yt-dlp-ejs/Deno/FFmpeg, config, logs) — ver `session_log.md` Sesión 1
 - [x] **Fase 2** — SQLite + job state machine (WAL, schema, job events, transitions, recovery) — ver `session_log.md` Sesión 1
-- [ ] **Fase 3** — yt-dlp adapter (metadata, formato normalizado, error mapping, subprocess, yt-dlp-ejs/Deno, diagnóstico de versión)
+- [x] **Fase 3** — yt-dlp adapter (metadata, formato normalizado, error mapping, subprocess, yt-dlp-ejs/Deno, diagnóstico de versión) — ver `session_log.md` Sesión 4
 - [ ] **Fase 4** — FFmpeg/FFprobe adapters (inspection, remux, transcode, extracción audio, validación)
 - [ ] **Fase 5** — Execution planner (intent → ExecutionPlan, stream copy preferido, rechazar intents arbitrarios)
 - [ ] **Fase 6** — Scheduler + worker pool asyncio (3 jobs / 2 downloads / 1 encoder, cancelación, retries, backpressure, SSE de progreso)

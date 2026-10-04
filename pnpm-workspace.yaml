@@ -1,3 +1,9 @@
 packages:
   - apps/*
   - packages/*
+
+# `deno` downloads the runtime binary in its postinstall script. It is approved
+# explicitly because the extraction engine needs a JS runtime (yt-dlp-ejs), and
+# pnpm blocks build scripts by default.
+onlyBuiltDependencies:
+  - deno

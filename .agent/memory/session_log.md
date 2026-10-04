@@ -6,70 +6,77 @@
 > "HISTORIAL RELEVANTE"; el detalle completo se mueve a `session_log_archive.md`.
 > Nunca debe haber más de 1 sesión en detalle completo en este archivo.
 > Si este archivo supera ~150-200 líneas, la compresión no se está
-> aplicando — parar y corregir antes de seguir agregar.
+> aplicando — parar y corregir antes de seguir agregando.
 
 ---
 
 ## ÚLTIMA SESIÓN (detalle completo)
 
-`Sesión 3 — 2026-10-04 — space-bunny-free vía OpenCode (PowerShell/Windows)`
+`Sesión 4 — 2026-10-04 — space-bunny-free vía OpenCode (PowerShell/Windows)`
 
-### Fase 2 — SQLite + job state machine: completada
+### Fase 3 — yt-dlp adapter: completada
 
-**Módulos nuevos en `apps/api`:**
-- `job_state.py` — `JobState(StrEnum)` con los 14 estados del plan, tabla de
-  transiciones válidas, `ACTIVE_STATES` (RESOLVING/DOWNLOADING/PROCESSING/
-  VALIDATING/COMMITTING), `TERMINAL_STATES`, `can_transition`/`assert_transition`
-  e `InvalidTransition` (fail explícito, nunca UNKNOWN_ERROR).
-- `migrations.py` — migraciones append-only `(version, description, sql)` aplicadas
-  con `PRAGMA user_version`. Migración v1 crea `jobs`, `job_events`, `settings` con
-  las columnas del spec (incluye `source_url_hash`, `priority`, `attempt_count`).
-- `db.py` — `connect()` (WAL, `foreign_keys=ON`, `synchronous=NORMAL`,
-  `isolation_level=None`), `initialize()` idempotente, contextmanager `transaction()`
-  con `BEGIN IMMEDIATE`/`ROLLBACK`/`COMMIT`, `schema_version()`.
-- `jobs.py` — `Job` dataclass + repositorio: `create_job`, `get_job`, `list_jobs`,
-  `transition` (valida, actualiza estado y graba el evento en la MISMA transacción),
-  `find_active_jobs`, `get_events`, `hash_url`. Import de `json` movido al tope del
-  módulo.
+**Dependencias:** `yt-dlp==2026.8.19` vía `uv add` (dependencia Python; se invoca como
+`[sys.executable, "-m", "yt_dlp"]`, nunca del PATH). **Deno 2.9.6 vía pnpm** como
+devDependency raíz: su binario se descarga en postinstall, así que hizo falta
+`onlyBuiltDependencies: [deno]` en `pnpm-workspace.yaml` — en pnpm 11 esa setting ya NO
+se lee del campo `pnpm` de package.json (warning explícito). Se le pasa a yt-dlp con
+`--js-runtimes deno:<path>`, no por variable de entorno.
 
-**Integración:** `app.py` ahora usa `lifespan` async — abre la DB al startup, loguea
-`database_ready` con la versión de schema y la cierra al shutdown. `health` reporta la
-DB real (`ok (schema v1)`) en vez del probe en memoria; se borró `database_ready()` de
-`diagnostics.py` por quedar muerto.
+**Estructura nueva (capas, principio #3):**
+- `domain/errors.py` — `ErrorCode` (16 categorías) + `ExtractionError` con flag
+  `retryable` y `detail` sólo para diagnóstico.
+- `domain/media.py` — `MediaFormat`, `MediaSource`, `MediaInfo`, `FormatKind`.
+- `domain/extractor.py` — `Protocol Extractor` (adapters reemplazables, #24).
+- `domain/urls.py` — allowlist http/https; rechaza `file:`, `javascript:`, `data:`, etc.
+- `adapters/tool_paths.py` — orden override → `node_modules/.bin` → venv → PATH.
+- `adapters/errors.py` — tabla de mapeo stderr de yt-dlp → `ErrorCode`, como datos.
+- `adapters/normalize.py` — el único lugar que conoce el schema de yt-dlp.
+- `adapters/progress.py` — parseo de `--progress-template` con delimitador privado.
+- `adapters/yt_dlp.py` — `YtDlpExtractor` (version/resolve/download), argv arrays.
+- `services/resolve.py` — `ResolveService` + `error_response` con status por código.
+- API: `POST /api/v1/resolve`, y `/api/v1/health` ahora incluye `extractor` con la
+  versión y el flag `may_be_outdated`. `create_app` acepta `extractor_factory` para que
+  los tests no lanzen el network.
 
-**Tests (37 en total):** `test_job_state.py` (path feliz completo, terminales sin
-salidas, cancelación cooperativa, estados activos→RECOVERY_REQUIRED),
-`test_db.py` (migraciones idempotentes, WAL y FKs, FKs realmente aplicadas, rollback
-de transacción, versiones únicas y ordenadas), `test_jobs.py` (CRUD, transición
-atómica con evento, transición ilegal no cambia el estado, ciclo completo a
-COMPLETED, payload sin URL, filtros por estado, cascada al borrar, **y recovery tras
-"terminación del proceso"**). `test_app.py` actualizado a fixture con lifespan.
+**Cuatro decisiones de diseño que cambiaron código, no tests:**
+1. **`quality_score` estaba mal.** Daba 400 puntos a "combined", así que un 360p muxed
+   (489) le ganaba a un 1080p video-only (314) — exactamente el "fake maximum quality"
+   del principio #6. Reescrito: la resolución domina y "combined" sólo desempata.
+2. **La validación de URL vivía en el adapter**, así que un extractor stub la
+   esquivaba y `file:///C:/...` devolvía 200. Movida al service (frontera), mantenida
+   también en el adapter.
+3. **Links directos a media devolvían 0 formatos.** El extractor `generic` reporta
+   `vcodec/acodec: unknown` y el filtro los descartaba. Ahora se clasifica por
+   contenedor (`_VIDEO_CONTAINERS`) y se emite un warning que obliga a confirmar con
+   FFprobe antes de afirmar capacidades (principio #17).
+4. **Ordering del mapeo de errores:** `HTTP Error 429` caía en el patrón genérico de
+   4xx y se reportaba `SOURCE_UNAVAILABLE` en vez de `RATE_LIMITED`. `429` quedó
+   excluido del patrón genérico y la regla de rate limit se evalúa antes. Además
+   `available in your country` (no `not available in your country`) es lo que yt-dlp
+   emite de verdad.
 
-**Dos tests fallaron al escribirlos (lección de diseño, no de código):**
-1. Escribí `TERMINAL_STATES` incluyendo FAILED y un test que exigía "terminal sin
-   salidas". Contradice el endpoint `POST /jobs/{id}/retry` del spec. Corrección:
-   FAILED es terminal *para ese intento* y sólo puede reentrar explícitamente por
-   `RETRY_WAIT`; el test ahora codifica esa excepción en vez de banear todo.
-2. Conté mal los eventos del scenario de recovery (8 en vez de 7). El test ahora
-   descompone la cuenta con comentario para que no vuelva a pasar.
+**Tests: 128 unitarios + 3 live opt-in** (`LMD_LIVE_NETWORK=1`; los live nunca corren
+en CI). Cubren normalización contra un fixture JSON real, la tabla de mapeo de errores
+de forma exhaustiva, el parseo de progress (incluido que NUNCA parsea la línea humana),
+la política de URLs, el contrato del endpoint con extractor stub, y que la versión
+reportada sea la pineada en `uv.lock` (`yt-dlp --version` da `2026.08.19` con zero
+padding, la metadata da `2026.8.19`, así que se compara numéricamente).
 
-**Verificado en vivo contra `data/app.db`:** se creó un job real, se lo llevó a
-DOWNLOADING (5 eventos), se cerró la conexión (proceso muerto), se reabrió → el job
-aparece en `find_active_jobs`, se reconcilió a RECOVERY_REQUIRED y luego a QUEUED
-(7 eventos). `PRAGMA journal_mode` = `wal`, `user_version` = 1, y en disco quedaron
-`app.db-wal` + `app.db-shm`. Acceptance cumplida.
+**Acceptance verificada en vivo** contra
+`archive.org/.../big_buck_bunny_720p_surround.mp4`: resuelve a `MediaInfo` con
+extractor `generic`, 1 formato `video`, `duration: None` (no se sondea un link directo:
+null, no valor inventado), y sin ninguna clave del schema de yt-dlp en la respuesta.
+Los 3 tests live pasan. El bug del punto 3 se detectó justamente con esta corrida.
 
-**Gates:** ruff + format clean, pyright 0, pytest 37/37, y del lado JS eslint,
-prettier, svelte-check+tsc, vitest, ambos builds — todo verde.
-
-**Grafo:** `graphify update . --force` → 385 nodos, 568 aristas, 23 comunidades.
+**Gates:** ruff + format clean, pyright 0, pytest 128/128, y del lado JS eslint,
+prettier, svelte-check+tsc, vitest, ambos builds. Prettier detectó `pnpm-workspace.yaml`
+sin formatear y lo corregí antes de commitear.
 
 ### Chequeo final PROTOCOLO_SALIDA
 
-- [x] `session_log.md` con 1 sola sesión en detalle. Se corrigió la rotación: las
-      Sesiones 1 y 2 estaban acumuladas como addendums de la Sesión 1 y el archivo
-      había llegado a 211 líneas. Detalle completo de ambas movido verbatim a
-      `session_log_archive.md`.
+- [x] 1 sola sesión en detalle (Sesión 4). Sesiones 1-3 comprimidas en historial con
+      detalle verbatim en `session_log_archive.md`.
 - [x] Sin duplicación Regla↔tech_stack: la narrativa vive sólo en
       `lessons_learned.md`; `tech_stack.md` referencia por número.
 - [x] Loose ends de la sesión: ninguno.
@@ -78,9 +85,12 @@ prettier, svelte-check+tsc, vitest, ambos builds — todo verde.
 
 ## HISTORIAL RELEVANTE (comprimido, detalle completo en session_log_archive.md)
 
-- `Sesión 2 — 2026-10-04` — Fase 1: skeleton FastAPI+Granian. Módulos `config.py`,
-  `logging_config.py`, `diagnostics.py`, `app.py`, `__main__.py`; health con detección
-  de 5 tools; entry point `lmd-api`. 8 tests. Verificado en vivo en 127.0.0.1:8765.
+- `Sesión 3 — 2026-10-04` — Fase 2: SQLite + job state machine. `job_state.py`,
+  `migrations.py`, `db.py` (WAL + `BEGIN IMMEDIATE`), `jobs.py`; lifespan en `app.py`.
+  37 tests; recovery de un job DOWNLOADING tras "muerte" del proceso verificado en vivo.
+- `Sesión 2 — 2026-10-04` — Fase 1: skeleton FastAPI+Granian. `config.py`,
+  `logging_config.py`, `diagnostics.py`, `app.py`, `__main__.py`; health con detección de
+  5 tools; entry point `lmd-api`. 8 tests. Verificado en vivo en 127.0.0.1:8765.
 - `Sesión 1 — 2026-10-04` — Fase 0: monorepo uv+pnpm con `apps/api`, `apps/web`,
   `apps/extension`, `packages/contracts`; ESLint+Prettier; CI en windows+ubuntu;
   `.gitignore` saneado y hooks `pre-commit`. 12 tests. Reglas de Oro 1.1, 1.2, 1.3.

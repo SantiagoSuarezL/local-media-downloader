@@ -11,6 +11,12 @@
 
 **Dependencias principales:**
 - Backend: FastAPI, Granian, Pydantic, SQLite (stdlib, WAL), yt-dlp + yt-dlp-ejs + Deno (runtime JS interno del extractor), FFmpeg/FFprobe (binarios externos)
+
+**Resolución de binarios (no depender del PATH global):**
+- `yt-dlp` 2026.8.19 es dependencia **Python** del uv env; se invoca siempre como `[sys.executable, "-m", "yt_dlp", ...]`, jamás como `yt-dlp` del PATH.
+- **Deno 2.9.6 vía pnpm** (devDependency raíz + `onlyBuiltDependencies: [deno]` en `pnpm-workspace.yaml`, porque su binario se descarga en postinstall y pnpm los bloquea). Se le pasa a yt-dlp con `--js-runtimes deno:<path>`.
+- Orden de búsqueda en `adapters/tool_paths.py`: override explícito → `node_modules/.bin` del workspace → venv del uv → PATH. En producción (Fase 16) el orden pasa a ser bundle → venv → PATH.
+- FFmpeg/FFprobe: `LMD_FFMPEG` > venv del uv > PATH.
 - Frontend: Svelte 5, Vite, TypeScript, Tailwind CSS, pnpm
 - Extension: TypeScript, Manifest V3, Vite
 - Monorepo: uv + `.venv` + `uv.lock` (Python), pnpm (TS, único package manager JS)
@@ -39,7 +45,7 @@ Monolito modular local-first con scheduler durable de jobs (asyncio, sin Celery/
 
 **Packaging:** Windows primero — PyInstaller onedir → Inno Setup. Binarios third-party bundled y pineados (FFmpeg LGPL preferible); THIRD_PARTY_NOTICES.md; licencia del proyecto Apache-2.0.
 
-**Suite de tests:** 41 (37 pytest en `apps/api` + 4 Vitest en `apps/extension`; `apps/web` sin tests todavía)
+**Suite de tests:** 135 (128 pytest en `apps/api` + 4 Vitest en `apps/extension` + 3 pytest live opt-in con `LMD_LIVE_NETWORK=1`; `apps/web` sin tests todavía)
 
 ---
 
@@ -56,3 +62,5 @@ Monolito modular local-first con scheduler durable de jobs (asyncio, sin Celery/
 4. `.gitignore` ignora `.claude/`, `.opencode/` y `graphify-out/` (config de agente con rutas absolutas de la máquina y artefactos generados). `.agent/memory/` sí se versiona.
 5. Todo archivo nuevo o editado debe pasar por su formateador (`uv run ruff format`, `pnpm exec prettier --write`) ANTES de commitear: el hook `pre-commit` lo exige y CI lo revalida. (Ref: 1.3)
 6. Base de datos: `data/app.db` en WAL + `foreign_keys=ON` + `synchronous=NORMAL`, `isolation_level=None` con transacciones `BEGIN IMMEDIATE` explícitas, migraciones append-only versionadas con `PRAGMA user_version`. Conexión única en `app.state.db` creada en el lifespan y cerrada al shutdown. `jobs.state` es la única fuente de verdad; `job_events` es audit sin URLs completas (solo `source_url_hash`).
+7. Capas: `domain/` (modelos, `ErrorCode`, puertos, política de URLs) no importa nunca yt-dlp ni FastAPI; `adapters/` es el único lugar que conoce herramientas externas; `services/` orquesta; `app.py` sólo valida y delega. La validación de URL se aplica en el **service**, no en el adapter, para que ninguna implementación del puerto pueda saltársela.
+8. `quality_score` ordena candidatos para el planner pero jamás declara más calidad de la que tiene la fuente: la resolución domina y "combined" sólo desempata (un 360p muxed no puede ganarle a un 1080p video-only).

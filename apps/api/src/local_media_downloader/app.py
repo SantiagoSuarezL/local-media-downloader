@@ -8,27 +8,44 @@ later phases; nothing here calls yt-dlp or FFmpeg directly.
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import __version__
+from .adapters.yt_dlp import YtDlpExtractor
 from .config import Settings
 from .db import initialize, schema_version
 from .diagnostics import detect_tools, storage_ready
+from .domain.errors import ExtractionError
+from .domain.extractor import Extractor
 from .logging_config import configure_logging, get_logger
+from .services.resolve import ResolveService, error_response
 
 _ERROR_NOT_FOUND = "NOT_FOUND"
 _ERROR_VALIDATION = "VALIDATION_ERROR"
 _ERROR_INTERNAL = "INTERNAL_ERROR"
 
+# A deliberately conservative floor, not the pinned version: the point is to
+# warn when the installed extractor set is old enough that site breakage is
+# likely. The pinned version lives in uv.lock; this is the "too old to trust"
+# line and it only ever moves forward.
+_MINIMUM_YTDLP_VERSION = (2026, 1, 1)
+
 
 def _error_payload(code: str, message: str) -> dict[str, object]:
     return {"error": {"code": code, "message": message}}
+
+
+class ResolveRequest(BaseModel):
+    """Strict input schema: the API is a security boundary (#18)."""
+
+    url: str = Field(min_length=1, max_length=2048)
 
 
 def _database_status(conn: sqlite3.Connection | None) -> tuple[bool, str]:
@@ -42,8 +59,52 @@ def _database_status(conn: sqlite3.Connection | None) -> tuple[bool, str]:
     return True, f"ok (schema v{schema_version(conn)})"
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def _extractor_status(make_extractor: Callable[[], Extractor]) -> dict[str, object]:
+    """yt-dlp version plus the outdated signal the spec requires.
+
+    Extractors break when platforms change, so diagnostics must be able to say
+    "this may be outdated" without attempting an update: updates are an
+    explicit user action, never automatic (TECHNICAL_SPEC §1).
+    """
+    extractor = make_extractor()
+    version = extractor.version
+    if version is None:
+        return {
+            "name": extractor.name,
+            "available": False,
+            "version": None,
+            "may_be_outdated": None,
+        }
+    try:
+        current = tuple(int(part) for part in version.split("."))
+    except ValueError:
+        return {
+            "name": extractor.name,
+            "available": True,
+            "version": version,
+            "may_be_outdated": None,
+        }
+    may_be_outdated = current < _MINIMUM_YTDLP_VERSION
+    return {
+        "name": extractor.name,
+        "available": True,
+        "version": version,
+        "may_be_outdated": may_be_outdated,
+    }
+
+
+def create_app(
+    settings: Settings | None = None,
+    *,
+    extractor_factory: Callable[[], Extractor] | None = None,
+) -> FastAPI:
+    """Build the application.
+
+    ``extractor_factory`` exists so tests can inject a stub instead of spawning
+    yt-dlp; production always uses :class:`YtDlpExtractor`.
+    """
     settings = settings or Settings.from_env()
+    make_extractor = extractor_factory or YtDlpExtractor
     settings.ensure_data_dir()
     configure_logging(settings.log_level)
     logger = get_logger("api")
@@ -115,7 +176,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "tools": {name: tool.as_dict() for name, tool in tools.items()},
         }
         logger.info("health_check")
+        payload["extractor"] = _extractor_status(make_extractor)
         return payload
+
+    @app.post("/api/v1/resolve")
+    def resolve(payload: ResolveRequest) -> JSONResponse:
+        """Resolve a URL into normalized MediaInfo.
+
+        This is a thin boundary: it validates, delegates to the extractor port
+        and returns the normalized model. No yt-dlp syntax is ever built here.
+        """
+        service = ResolveService(make_extractor())
+        try:
+            info = service.resolve(payload.url)
+        except ExtractionError as error:
+            status, body = error_response(error)
+            logger.info("resolve_failed", extra={"error_code": error.code.value})
+            return JSONResponse(status_code=status, content=body)
+        return JSONResponse(status_code=200, content=info.as_dict())
 
     return app
 
