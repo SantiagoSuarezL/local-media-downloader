@@ -34,3 +34,20 @@
 **Solución:** `uv.lock` quedó versionado (comentario explícito en la línea 102 del `.gitignore`); `pnpm-lock.yaml` también. Verificado con `git check-ignore uv.lock` → exit 1.
 
 **Regla de Oro:** *Nunca aceptes el default de un `.gitignore` heredado para los lockfiles: `uv.lock` y `pnpm-lock.yaml` se commitean siempre, y verificá con `git check-ignore` antes de dar por cerrada la higiene del repo.*
+
+### Regla de Oro 1.3 [Proceso / formateo]: formatear SIEMPRE después de escribir un archivo
+
+**Error:** el primer push a GitHub dejó los 4 jobs de CI en rojo. `prettier --check .`
+fallaba por `.github/workflows/ci.yml` y, en el fix, por `.pre-commit-config.yaml`. En
+ambos casos el único defecto era **falta el newline final** (`\ No newline at end of file`).
+
+**Root Cause:** la herramienta de escritura de archivos no garantiza el newline final, y
+además yo escribí esos archivos *después* de la última pasada de `pnpm format`. El
+resultado es que el formateador nunca los vio, pero CI sí.
+
+**Solución:** dos capas. (1) `.pre-commit-config.yaml` con hooks locales de `ruff format`,
+`ruff check` y `prettier --write`, instalados con `uv run pre-commit install`; verificado
+en Windows — un commit con un JSON mal formateado aborta con exit 1. (2) Los mismos gates
+siguen corriendo en CI.
+
+**Regla de Oro:** *Después de escribir o editar cualquier archivo, corré su formateador y `format:check` antes de commitear; ningún archivo nuevo llega al commit sin pasar por Prettier o Ruff.*

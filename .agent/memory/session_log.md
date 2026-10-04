@@ -91,6 +91,36 @@ secretos y de rutas absolutas en el código a commitear.
   (`lib/`, `var/`, `build/`, `target/`) → cargada en `observations.md` para decidir en
   la Fase 1.
 
+### Addendum 2 — CI rojo en el primer push + capa de prevención
+
+**Síntoma:** los 4 jobs de GitHub Actions fallaron. Causa real: `prettier --check .`
+marca `.github/workflows/ci.yml`; el único defecto era el **newline final ausente**
+(`\ No newline at end of file`). Al crear el archivo después de la última pasada de
+`pnpm format`, el formateador nunca lo había visto.
+
+**Fix en dos capas:**
+1. `pnpm exec prettier --write` sobre `ci.yml`.
+2. `.pre-commit-config.yaml` con 3 hooks locales (`language: system`):
+   `uv run --no-sync ruff format`, `uv run --no-sync ruff check` y
+   `pnpm exec prettier --write --ignore-unknown`. Instalado con
+   `uv run pre-commit install` → `.git/hooks/pre-commit`.
+   `pre-commit>=4.0` agregado al dev group de uv (uv.lock actualizado).
+
+**Verificado empíricamente en Windows** (no asumido):
+- `uv run pre-commit run --all-files` → 3 hooks `Passed`.
+- Sonda: un `zz-format-probe.json` mal formateado staged → el hook lo reescribió y
+  `git commit` **abortó con exit 1**, sin crear commit. Sonda eliminada.
+
+**También:** `README.md` reescrito con sección de setup de desarrollo (`uv sync`,
+`pnpm install`, `uv run pre-commit install`) y los comandos de chequeo con paridad con
+CI, para que un clone nuevo no vuelva a tropezar con esto.
+
+**Suite completa verde antes de commitear:** `uv lock --check`, `ruff check`,
+`ruff format --check`, `pyright` (0), `pytest` (1), `pnpm install --frozen-lockfile`,
+`pnpm lint`, `pnpm format:check`, `pnpm check`, `pnpm -r test` (4), `pnpm build`.
+
+→ Regla de Oro 1.3 (`lessons_learned.md`).
+
 ### Chequeo final PROTOCOLO_SALIDA
 
 - [x] `session_log.md` con 1 sola sesión en detalle (rotación no aplica aún: el archivo

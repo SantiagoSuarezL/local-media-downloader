@@ -1,0 +1,26 @@
+# Pre-commit hooks — run automatically on git commit.
+# Install once per clone:  uv run pre-commit install
+# Bypass for a single commit (rare):  git commit --no-verify
+#
+# Every hook here mirrors a gate that CI enforces, so a green commit implies a
+# green build. See .github/workflows/ci.yml.
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: ruff format
+        entry: uv run --no-sync ruff format --force-exclude
+        language: system
+        types_or: [python, pyi]
+
+      - id: ruff-check
+        name: ruff check
+        entry: uv run --no-sync ruff check --force-exclude
+        language: system
+        types_or: [python, pyi]
+
+      - id: prettier
+        name: prettier
+        entry: pnpm exec prettier --write --ignore-unknown
+        language: system
+        files: '\.(js|ts|svelte|json|jsonc|css|html|ya?ml|md)$'

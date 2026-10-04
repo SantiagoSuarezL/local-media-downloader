@@ -33,9 +33,9 @@ local-media-downloader/
 ```
 Monolito modular local-first con scheduler durable de jobs (asyncio, sin Celery/RQ/Redis). API no contiene lógica yt-dlp/FFmpeg; workers ejecutan subprocesos aislados; SQLite solo metadata/estado (nunca bytes de media). Progreso en tiempo real vía SSE (`GET /api/v1/events`); acciones del usuario vía HTTP. En producción FastAPI sirve el build estático de Svelte — sin servidor Node en runtime.
 
-**Configuración tooling:** uv (env/deps), pytest + httpx (Pyright para types, Ruff lint+format), Vite (frontend/extension); ESLint 10 + typescript-eslint + eslint-plugin-svelte, Prettier 3 (svelte + tailwind plugins), Vitest 5 (tests JS); no mypy, no watchfiles en runtime. CI = GitHub Actions con matriz `ubuntu-latest` + `windows-latest`.
+**Configuración tooling:** uv (env/deps), pytest + httpx (Pyright para types, Ruff lint+format), Vite (frontend/extension); ESLint 10 + typescript-eslint + eslint-plugin-svelte, Prettier 3 (svelte + tailwind plugins), Vitest 5 (tests JS), `pre-commit` 4 (hooks ruff+prettier); no mypy, no watchfiles en runtime. CI = GitHub Actions con matriz `ubuntu-latest` + `windows-latest`.
 
-**Comandos raíz:** `uv sync` / `uv run pytest|ruff|pyright`; `pnpm lint|format:check|check|test|build` (agrega los tres paquetes).
+**Checks (paridad con CI):** `uv run ruff check . && uv run ruff format --check .`, `uv run pyright`, `uv run pytest`, `pnpm lint`, `pnpm format:check`, `pnpm check`, `pnpm test`, `pnpm build`.
 
 **Packaging:** Windows primero — PyInstaller onedir → Inno Setup. Binarios third-party bundled y pineados (FFmpeg LGPL preferible); THIRD_PARTY_NOTICES.md; licencia del proyecto Apache-2.0.
 
@@ -54,3 +54,4 @@ Monolito modular local-first con scheduler durable de jobs (asyncio, sin Celery/
 2. `apps/web` y `apps/extension` se compilan a assets estáticos; el manifest MV3 y el `index.html` del popup se copian a `dist/` con paths fijos (`src/background/index.js`, `src/popup/index.html`) que el manifest referencia literalmente.
 3. `uv.lock` y `pnpm-lock.yaml` se versionan; CI usa `uv sync --locked` y `pnpm install --frozen-lockfile`. Ningún lockfile puede quedar ignorado. (Ref: 1.2)
 4. `.gitignore` ignora `.claude/`, `.opencode/` y `graphify-out/` (config de agente con rutas absolutas de la máquina y artefactos generados). `.agent/memory/` sí se versiona.
+5. Todo archivo nuevo o editado debe pasar por su formateador (`uv run ruff format`, `pnpm exec prettier --write`) ANTES de commitear: el hook `pre-commit` lo exige y CI lo revalida. (Ref: 1.3)
