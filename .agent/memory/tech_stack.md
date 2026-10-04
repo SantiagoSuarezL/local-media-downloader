@@ -39,7 +39,7 @@ Monolito modular local-first con scheduler durable de jobs (asyncio, sin Celery/
 
 **Packaging:** Windows primero — PyInstaller onedir → Inno Setup. Binarios third-party bundled y pineados (FFmpeg LGPL preferible); THIRD_PARTY_NOTICES.md; licencia del proyecto Apache-2.0.
 
-**Suite de tests:** 5 (1 pytest en `apps/api` + 4 Vitest en `apps/extension`; `apps/web` sin tests todavía)
+**Suite de tests:** 12 (8 pytest en `apps/api` + 4 Vitest en `apps/extension`; `apps/web` sin tests todavía)
 
 ---
 

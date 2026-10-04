@@ -5,8 +5,8 @@
 ## Estado del proyecto
 
 **Proyecto:** local-media-downloader
-**Fase actual:** 1
-**Próxima fase:** 2 — SQLite + job state machine
+**Fase actual:** 2
+**Próxima fase:** 3 — yt-dlp adapter
 
 ## Tabla de archivos
 
