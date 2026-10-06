@@ -5,5 +5,9 @@ packages:
 # `deno` downloads the runtime binary in its postinstall script. It is approved
 # explicitly because the extraction engine needs a JS runtime (yt-dlp-ejs), and
 # pnpm blocks build scripts by default.
-onlyBuiltDependencies:
-  - deno
+#
+# pnpm 11 removed `onlyBuiltDependencies` (silently ignored, so CI failed with
+# ERR_PNPM_IGNORED_BUILDS on every clean install) in favour of this map. Run
+# `pnpx codemod run pnpm-v10-to-v11` if you migrate an older workspace.
+allowBuilds:
+  deno: true

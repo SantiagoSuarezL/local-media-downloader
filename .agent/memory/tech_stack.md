@@ -14,7 +14,7 @@
 
 **Resolución de binarios (no depender del PATH global):**
 - `yt-dlp` 2026.8.19 es dependencia **Python** del uv env; se invoca siempre como `[sys.executable, "-m", "yt_dlp", ...]`, jamás como `yt-dlp` del PATH.
-- **Deno 2.9.6 vía pnpm** (devDependency raíz + `onlyBuiltDependencies: [deno]` en `pnpm-workspace.yaml`, porque su binario se descarga en postinstall y pnpm los bloquea). Se le pasa a yt-dlp con `--js-runtimes deno:<path>`.
+- **Deno 2.9.6 vía pnpm** (devDependency raíz + `allowBuilds: { deno: true }` en `pnpm-workspace.yaml`, porque su binario se descarga en postinstall y pnpm 11 bloquea build scripts por defecto; `onlyBuiltDependencies` ya no existe en pnpm 11 → Ref. 10.3). Se le pasa a yt-dlp con `--js-runtimes deno:<path>`.
 - Orden de búsqueda en `adapters/tool_paths.py`: override explícito → `node_modules/.bin` del workspace → venv del uv → PATH. En producción (Fase 16) el orden pasa a ser bundle → venv → PATH.
 - FFmpeg/FFprobe: `LMD_FFMPEG` > venv del uv > PATH.
 - Frontend: Svelte 5, Vite, TypeScript, Tailwind CSS, pnpm

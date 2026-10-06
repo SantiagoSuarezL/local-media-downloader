@@ -51,3 +51,13 @@
 **Solución:** reproducir en otro puerto (`LMD_PORT=8766`) y ahí sí: health 200 público, jobs sin token 401, shell con `<meta lmd-token>`, jobs con header 200, cookie 200 (ruta del EventSource), `Host: evil.example.com` 403, y `LMD_HOST=0.0.0.0` aborta con `Refusing to bind`. Para pruebas locales de API, verificar que el puerto esté libre antes de concluir nada de una respuesta.
 
 **Regla de Oro:** *Antes de interpretar la respuesta de un smoke test e2e, confirmá que el proceso que escucha el puerto es el que acabás de arrancar (puerto libre o puerto alterno): un servidor viejo en 8765 es indistinguishable de un fallo de seguridad.*
+
+### Regla de Oro 10.3 [Tooling / pnpm]: los settings de build scripts de pnpm 10 ya no existen en pnpm 11
+
+**Error:** el job `frontend` de CI venía fallando en ambos OS desde el commit de Fase 3, sin que nadie lo notara: `pnpm install --frozen-lockfile` abortaba con `ERR_PNPM_IGNORED_BUILDS` (deno). En local todo pasaba porque el `node_modules` ya tenía el binario de deno de instalaciones viejas.
+
+**Root Cause:** pnpm 11 (este repo usa `packageManager: pnpm@11.2.2`) **removió** `onlyBuiltDependencies` y lo ignora en silencio; el reemplazo es el mapa `allowBuilds: { deno: true }` en `pnpm-workspace.yaml`. Con `onlyBuiltDependencies`, el postinstall de deno no corría en ninguna máquina limpia — o sea, el runtime JS de yt-dlp-ejs tampoco estaba instalado en CI.
+
+**Solución:** `pnpm-workspace.yaml` usa `allowBuilds: { deno: true }` con comentario que explica la migración; verificado con un clon limpio (`git clone --depth 1` + `rm -rf node_modules` + los 5 pasos del job frontend) antes de pushear. Codemod oficial: `pnpx codemod run pnpm-v10-to-v11`.
+
+**Regla de Oro:** *Un `pnpm install` que pasa en tu máquina no prueba nada si los `node_modules` ya existían: reproducí los pasos de CI en un clon limpio antes de declarar verde cualquier job de JS. Y si cambiás de versión mayor de pnpm, los settings de build scripts se renombran — no se borran en silencio.*
