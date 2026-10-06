@@ -41,6 +41,9 @@ class ErrorCode(StrEnum):
     # Fallback — only when the cause genuinely cannot be classified.
     EXTRACTION_FAILED = "EXTRACTION_FAILED"
 
+    # A produced file failed post-processing validation (FFprobe checks).
+    VALIDATION_FAILED = "VALIDATION_FAILED"
+
 
 # Retryable means "the same request may succeed later without user action".
 RETRYABLE: frozenset[ErrorCode] = frozenset(

@@ -71,16 +71,25 @@ def python_environment_bin() -> Path | None:
     return None
 
 
-def ffmpeg_argv() -> list[str]:
-    """Resolve FFmpeg preferring the environment over PATH."""
-    override = os.environ.get("LMD_FFMPEG")
+def _tool_argv(env_var: str, names: tuple[str, ...]) -> list[str]:
+    override = os.environ.get(env_var)
     if override:
         return [override]
     env_bin = python_environment_bin()
     if env_bin is not None:
-        for name in ("ffmpeg", "ffmpeg.exe"):
+        for name in names:
             candidate = env_bin / name
             if candidate.exists():
                 return [str(candidate)]
-    found = shutil.which("ffmpeg")
-    return [found] if found else ["ffmpeg"]
+    found = shutil.which(names[0])
+    return [found] if found else [names[0]]
+
+
+def ffmpeg_argv() -> list[str]:
+    """Resolve FFmpeg preferring the environment over PATH."""
+    return _tool_argv("LMD_FFMPEG", ("ffmpeg", "ffmpeg.exe"))
+
+
+def ffprobe_argv() -> list[str]:
+    """Resolve FFprobe preferring the environment over PATH."""
+    return _tool_argv("LMD_FFPROBE", ("ffprobe", "ffprobe.exe"))
