@@ -19,7 +19,7 @@
 - [x] **Fase 8** — Svelte 5 web UI (Dashboard, Resolve, Job details, History, Settings, Diagnostics; assets servidos por FastAPI) — ver `session_log.md` Sesión 8
 - [x] **Fase 9** — Browser extension (popup, handoff URL, health indicator Connected/Offline, permisos activeTab+storage + host loopback) — ver `session_log.md` Sesión 9
 - [x] **Fase 10** — Security hardening (loopback-only bind, token local, Origin/Host validation, allowlist de protocolo, límites de request, rate limit en resolve, output path + sanitización de filenames, redacción de secretos) — ver `session_log.md` Sesión 10
-- [ ] **Fase 11** — Native Messaging (evaluar gate: solo si localhost MVP y UX validados)
+- [x] **Fase 11** — Native Messaging: **evaluada, NO se implementa** (veredicto en Sesión 11). El gate de `IMPLEMENTATION_PLAN.md` no puede cerrarse antes de Fase 16: el MVP localhost funciona, pero "instalación/distribución" solo se entiende cuando exista el paquete instalable. Se reevalúa en Fase 16.
 - [ ] **Fase 12** — Batch + history (multi-URL, historia, retry, duplicados, cleanup)
 - [ ] **Fase 13** — Media presets (Video, Audio, MP3, MP4, WebM, GIF, WebP, No audio, Mobile, WhatsApp sticker)
 - [ ] **Fase 14** — Advanced processing (trim, crop, resize, bitrate, framerate, subtítulos, metadata)
@@ -31,6 +31,6 @@
 
 ## Pendientes Críticos Detectados
 
-- **~~Deno no está instalado~~ (resuelto en Sesión 4):** Deno 2.9.6 vía pnpm devDependency raíz con `onlyBuiltDependencies: [deno]`; se pasa a yt-dlp con `--js-runtimes deno:<path>`.
+- **~~Deno no está instalado~~ (resuelto en Sesión 4):** Deno 2.9.6 vía pnpm devDependency raíz con `allowBuilds: { deno: true }` (pnpm 11 ignora `onlyBuiltDependencies`; corregido en Sesión 11 → Regla 10.3); se pasa a yt-dlp con `--js-runtimes deno:<path>`.
 - **"Backend starts locally" de la acceptance de Fase 0 se difiere a Fase 1** por decisión explícita: Fase 0 no introduce FastAPI/Granian (el plan prohíbe deps antes de la fase que las requiere). `apps/api` queda como paquete importable + 1 test.
-- **`docs/`, `.agent/`, `CLAUDE.md` siguen sin trackear en git** (el "Initial commit" sólo llevaba `.gitignore` + `README.md`). Hay que decidir si se commitean antes del primer release. `.claude/`, `.opencode/` y `graphify-out/` ya están en `.gitignore` a propósito.
+- **UX de la extensión sin verificar en un browser real (decisión explícita del usuario, Sesión 11):** Fase 9 y Fase 10 están verificadas por tests (lógica pura, contratos, CLI), pero el popup en Chrome/Firefox y el flujo `<meta>`/cookie/`EventSource` nunca se ejecutaron en un navegador. Se validan en Fase 16; el checklist concreto está en `observations.md`.

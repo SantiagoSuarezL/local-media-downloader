@@ -5,8 +5,8 @@
 ## Estado del proyecto
 
 **Proyecto:** local-media-downloader
-**Fase actual:** 11 (pendiente, sin empezar — es un gate de evaluación, no implementación)
-**Próxima fase:** 12 — Batch + history
+**Fase actual:** 12 (pendiente, sin empezar)
+**Próxima fase:** 13 — Media presets
 
 ## Tabla de archivos
 
