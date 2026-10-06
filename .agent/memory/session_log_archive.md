@@ -6,6 +6,39 @@
 
 ## Archivo de sesiones
 
+### Sesión 9 — 2026-10-06 — opencode/fledge-alpha-free vía OpenCode (PowerShell/Windows)
+
+- Fase 9 (Browser extension MV3): popup con URL de la pestaña actual, botón "Open in Local Media Downloader", campo "Paste URL", indicador Connected/Offline y editor de dirección del servicio (guardada con `storage.local`, default `http://127.0.0.1:8765`). El botón de handoff queda deshabilitado si el servicio no responde (evita abrir una pestaña a la página de error del browser).
+- `src/lib/handoff.ts` (lógica pura, testeada): `normalizeServiceUrl` acepta SOLO loopback http(s) y devuelve el origin; `validateMediaUrl` rechaza `chrome://`, `file://`, `javascript:`, `data:`, `about:` y URLs >2048 con un motivo legible; `buildDashboardUrl` manda la URL como `?url=<encodeURIComponent>`.
+- `src/service/client.ts`: `checkHealth()` con `AbortController` (timeout 1500 ms) → `connected`/`offline` + detalle; nunca propaga excepción (servidor caído es un estado esperado) y una `degraded` se reporta como conectada pero degradada.
+- `BrowserBridge` gana `storage()` (chrome.storage.local / browser.storage.local) para que el popup guarde la dirección del servicio; manifest suma `host_permissions` SOLO loopback.
+- Handoff en la web: `App.svelte` lee `?url=` y abre la pestaña Resolve con el campo prellenado (sin router).
+- Tests: 18 nuevos vitest (`handoff.test.ts` 9, `client.test.ts` 6, `manifest.test.ts` 3) — 22 vitest en total. Gates: pytest 186 passed/3 skipped, pyright 0, ruff clean, tsc+svelte-check 0, eslint+prettier clean, builds web+extension ok.
+
+### Sesión 8 — 2026-10-06 — opencode/fledge-alpha-free vía OpenCode (PowerShell/Windows)
+
+- Fase 8 (Svelte 5 web UI): 6 pantallas (Dashboard con progreso SSE en vivo vía store compartido `live.ts`, Resolve con metadata+formatos+8 presets, Job details, History con filtros, Settings read-only, Diagnostics); tipos compartidos en `packages/contracts`; proxy dev `/api` → 127.0.0.1:`LMD_PORT`.
+- Backend: `GET /api/v1/settings` (read-only); FastAPI sirve `apps/web/dist` en `/` (`_mount_web_ui`: `/assets` estáticos + fallback SPA; `/api/*` desconocido sigue 404 JSON); banner `GET /` movido a `GET /api/v1` (la `/` es del SPA); `created_at/updated_at` agregadas a `_job_dict`.
+- Bugs encontrados y resueltos: (1) `.gitignore` heredado ignoraba `apps/web/src/lib/` (patrón `lib/`) — código fuente invisible a git; anclados a raíz los patrones de dirs de plantilla (`lib/`, `build/`, `var/`, `target/`, `dist/`, `tmp/`, `temp/`, `cover/`, `coverage/`, etc.) → Regla 8.1, observación `.gitignore` cerrada. (2) SPA fallback tragaba `/api/v1/*` desconocidos (200 HTML) → excluidos, 404 JSON. (3) JobCard ocultaba Cancel en QUEUED aunque la API lo soporta. (4) ESLint no parseaba TS en `.svelte` (faltaba `parserOptions.parser`) → fix en `eslint.config.js`.
+- Tests: `test_app.py` +2 (settings, static mount con dist temporal; fixture hermética con `LMD_WEB_DIST` a dir inexistente); gates verdes: pytest 186 passed/3 skipped, pyright 0, ruff clean, svelte-check 0, eslint+prettier clean, `pnpm build` (web+extension) ok, vitest 4 passed. Verificado e2e con build real: `/` sirve el shell, `/api/v1/nope` 404 JSON.
+- `graphify update` corrido.
+
+### Sesión 7 — 2026-10-06 — opencode/fledge-alpha-free vía OpenCode (PowerShell/Windows)
+
+- Fase 7 (Recovery and resilience): nuevo `apps/api/src/local_media_downloader/services/recovery.py` con `recover_interrupted_jobs()` — corre en el lifespan antes de `scheduler.start()`; reconcilia estados vivos huérfanos (crash/power-loss): recola QUEUED (limpio de partials en `source/`/`work/`), `COMMITTING` ambiguo → `RECOVERY_REQUIRED` (nunca borra output posiblemente final), budget de attempts agotado → `FAILED` con `error_code=INTERRUPTED`, sin plan → `RECOVERY_REQUIRED`, `CANCEL_REQUESTED` con worker muerto → `CANCELLED`, `RETRY_WAIT` huérfano → `QUEUED`/`FAILED`. Audit en `jobs/<id>/logs/recovery.log` + eventos al bus.
+- `job_state.py`: `RESOLVING` ahora permite `RETRY_WAIT` (recovery lo necesita; antes no tenía salida).
+- Scheduler `_handle_failure` persiste `ExtractionError.detail` (stderr de yt-dlp/FFmpeg) a `jobs/<id>/logs/error.log` (escenario E: stderr disponible en diagnostics; ffmpeg ya no compromete output parcial — borra destination y clasifica non-retryable).
+- Disk full ya clasificado `INSUFFICIENT_DISK` (yt-dlp classifier, non-retryable) + scheduler pausa dispatch con guarda de disco; red/timeout ya van por `NETWORK_ERROR`/`TIMEOUT` retryable con backoff acotado.
+- Tests: `test_recovery.py` 9 nuevos (requeue, commit ambiguo, crash-loop FAILED, cancel muerto, retry revivido, sin plan, output COMPLETED intacto, log, bus).
+- Gates: ruff+format clean, pyright 0, pytest 184 passed / 3 live skipped. `graphify update` corrido.
+
+### Sesión 6 — 2026-10-06 — Fase 6 completada
+
+- Scheduler asyncio + DefaultExecutor: budgets 3/2/1 por semáforos, cancelación cooperativa, retries con backoff vía RETRY_WAIT, chequeo de disco; EventBus SSE con replay e historia acotada; endpoints POST /api/v1/jobs, GET /api/v1/jobs[/{id}], POST .../cancel, GET /api/v1/events.
+- Bug que bloqueó el cierre: starlette 1.7 TestClient bufea la respuesta completa → cuelga en streams infinitos (verificado en su código). Fix: _event_stream(bus) a nivel módulo en app.py, tests consumen el generador directo (→ Regla 6.1).
+- Tests: 12 nuevos (test_scheduler.py 6 + test_events.py 6); acceptance 10-jobs-acotados, progreso normalizado, cancel, retry acotado, framing SSE.
+- Gates: ruff + format clean, pyright 0, pytest 175 passed / 3 live skipped. JS sin cambios.
+
 ### Sesión 3 — 2026-10-04 — space-bunny-free vía OpenCode (PowerShell/Windows)
 
 #### Fase 2 — SQLite + job state machine: completada

@@ -25,6 +25,7 @@ from ..adapters.ffmpeg import FFmpegProcessor
 from ..adapters.progress import DownloadProgress
 from ..adapters.yt_dlp import YtDlpExtractor
 from ..domain.errors import ErrorCode, ExtractionError
+from ..domain.filenames import output_path_for
 from ..domain.plan import ExecutionPlan
 from ..domain.progress import JobProgress
 from ..job_state import JobState
@@ -143,7 +144,14 @@ class DefaultExecutor:
 
         jobs.transition(self._conn, job.id, JobState.COMMITTING, current_stage="committing")
         container = _final_container(plan) or work_file.suffix.lstrip(".") or "bin"
-        final = output_dir / f"{job.title or job.id}.{container}"
+        # The title comes from remote metadata, so it is sanitized and the
+        # resulting path is proven to stay inside this job's output directory.
+        final = output_path_for(
+            output_dir,
+            job.title,
+            fallback=job.id,
+            extension=container,
+        )
         shutil.move(str(work_file), str(final))
         jobs.set_output_path(self._conn, job.id, str(final))
         return final

@@ -52,7 +52,9 @@ TERMINAL_STATES: frozenset[JobState] = frozenset(
 # not UNKNOWN_ERROR — ENGINEERING_PRINCIPLES #16).
 _TRANSITIONS: dict[JobState, frozenset[JobState]] = {
     JobState.CREATED: frozenset({JobState.RESOLVING, JobState.FAILED, JobState.CANCELLED}),
-    JobState.RESOLVING: frozenset({JobState.READY, JobState.FAILED, JobState.CANCELLED}),
+    JobState.RESOLVING: frozenset(
+        {JobState.READY, JobState.FAILED, JobState.CANCELLED, JobState.RETRY_WAIT}
+    ),
     JobState.READY: frozenset(
         {JobState.QUEUED, JobState.FAILED, JobState.CANCEL_REQUESTED, JobState.CANCELLED}
     ),

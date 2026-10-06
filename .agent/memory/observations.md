@@ -10,13 +10,5 @@ Formato de cada entrada: fecha, target/módulo, observación, hipótesis, estado
 
 ## En curso
 
-- **2026-10-04 — `.gitignore` heredado de plantilla Python.** El `.gitignore` raíz
-  (commit inicial) traía ~220 líneas de plantilla que no aplican al proyecto, con
-  patrones que pueden volcar código real sin avisar: `lib/`, `var/`, `build/`,
-  `target/`, `downloads/`, `share/python-wheels/`. Si más adelante se crea un `lib/`
-  con TypeScript compartido o un `build/` de artefactos, desaparecerían del repo en
-  silencio.
-  *Hipótesis:* reducir el `.gitignore` a las líneas realmente necesarias.
-  *Estado:* abierto — no bloquea la Fase 0.
-  *Acción:* decidir en la Fase 1, cuando exista un `.venv` y un build real para
-  contrastar cada patrón con `git check-ignore`. (Relacionado: Regla de Oro 1.2)
+(ninguna — la observación del `.gitignore` heredado se cerró en Fase 8 y vive en
+`observations_archive.md`, blindada por la Regla de Oro 8.1)

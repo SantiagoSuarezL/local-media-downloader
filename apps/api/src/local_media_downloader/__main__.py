@@ -2,16 +2,29 @@
 
 from __future__ import annotations
 
+import sys
+
 from granian import Granian
 from granian.constants import Interfaces
 from granian.log import LogLevels
 
 from .config import Settings
+from .logging_config import configure_logging
+from .security import SecurityError, assert_loopback_host
 
 
 def main() -> None:
     settings = Settings.from_env()
     settings.ensure_data_dir()
+    configure_logging(settings.log_level)
+    try:
+        # The bind address is the outermost boundary: if it is not loopback the
+        # whole service is exposed to the network, so this fails before binding.
+        assert_loopback_host(settings.host)
+    except SecurityError as error:
+        print(f"error: {error.message}", file=sys.stderr)
+        raise SystemExit(1) from error
+
     Granian(
         "local_media_downloader.app:app",
         address=settings.host,

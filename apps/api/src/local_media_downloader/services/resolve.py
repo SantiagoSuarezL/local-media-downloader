@@ -39,6 +39,8 @@ class ResolveService:
 _STATUS_BY_CODE: dict[ErrorCode, int] = {
     ErrorCode.INVALID_URL: 400,
     ErrorCode.UNSUPPORTED_PROTOCOL: 400,
+    # The user asked for something that cannot be a source at all (SSRF guard).
+    ErrorCode.BLOCKED_SOURCE: 400,
     ErrorCode.UNSUPPORTED_SOURCE: 422,
     ErrorCode.SOURCE_UNAVAILABLE: 422,
     ErrorCode.GEO_RESTRICTED: 422,
@@ -46,6 +48,11 @@ _STATUS_BY_CODE: dict[ErrorCode, int] = {
     ErrorCode.AUTH_REQUIRED: 422,
     ErrorCode.DRM_PROTECTED: 422,
     ErrorCode.LIVE_STREAM: 422,
+    # An intent or a produced file that cannot be honoured. These are user
+    # mistakes, not server faults: defaulting them to 500 would make the UI
+    # report an internal error for a bad dropdown choice.
+    ErrorCode.UNSUPPORTED_INTENT: 422,
+    ErrorCode.VALIDATION_FAILED: 422,
     ErrorCode.TOOL_MISSING: 503,
     ErrorCode.TOOL_OUTDATED: 503,
     ErrorCode.INSUFFICIENT_DISK: 507,

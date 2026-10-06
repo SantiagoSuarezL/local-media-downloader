@@ -15,10 +15,10 @@
 - [x] **Fase 4** — FFmpeg/FFprobe adapters (inspection, remux, transcode, extracción audio, validación) — ver `session_log.md` Sesión 5
 - [x] **Fase 5** — Execution planner (intent → ExecutionPlan, stream copy preferido, rechazar intents arbitrarios) — ver `session_log.md` Sesión 5
 - [x] **Fase 6** — Scheduler + worker pool asyncio (3 jobs / 2 downloads / 1 encoder, cancelación, retries, backpressure, SSE de progreso) — ver `session_log.md` Sesión 6
-- [ ] **Fase 7** — Recovery and resilience (crash, power loss, disk full, network loss, FFmpeg crash)
-- [ ] **Fase 8** — Svelte 5 web UI (Dashboard, Resolve, Job details, History, Settings, Diagnostics; assets servidos por FastAPI)
-- [ ] **Fase 9** — Browser extension (popup, handoff URL, health indicator Connected/Offline, permisos mínimos activeTab+storage)
-- [ ] **Fase 10** — Security hardening (loopback, token local, Origin validation, protocol allowlist, sanitización)
+- [x] **Fase 7** — Recovery and resilience (crash, power loss, disk full, network loss, FFmpeg crash) — ver `session_log.md` Sesión 7
+- [x] **Fase 8** — Svelte 5 web UI (Dashboard, Resolve, Job details, History, Settings, Diagnostics; assets servidos por FastAPI) — ver `session_log.md` Sesión 8
+- [x] **Fase 9** — Browser extension (popup, handoff URL, health indicator Connected/Offline, permisos activeTab+storage + host loopback) — ver `session_log.md` Sesión 9
+- [x] **Fase 10** — Security hardening (loopback-only bind, token local, Origin/Host validation, allowlist de protocolo, límites de request, rate limit en resolve, output path + sanitización de filenames, redacción de secretos) — ver `session_log.md` Sesión 10
 - [ ] **Fase 11** — Native Messaging (evaluar gate: solo si localhost MVP y UX validados)
 - [ ] **Fase 12** — Batch + history (multi-URL, historia, retry, duplicados, cleanup)
 - [ ] **Fase 13** — Media presets (Video, Audio, MP3, MP4, WebM, GIF, WebP, No audio, Mobile, WhatsApp sticker)

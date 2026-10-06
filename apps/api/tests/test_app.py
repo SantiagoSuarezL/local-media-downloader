@@ -6,6 +6,7 @@ from collections.abc import Iterator
 import pytest
 from fastapi.testclient import TestClient
 
+from conftest import serving
 from local_media_downloader.app import create_app
 from local_media_downloader.config import Settings
 
@@ -13,8 +14,10 @@ from local_media_downloader.config import Settings
 @pytest.fixture
 def client(tmp_path, monkeypatch) -> Iterator[TestClient]:
     monkeypatch.setenv("LMD_DATA_DIR", str(tmp_path / "data"))
+    # Hermetic: never mount a developer's real apps/web/dist into the tests.
+    monkeypatch.setenv("LMD_WEB_DIST", str(tmp_path / "no-web-build"))
     settings = Settings.from_env()
-    with TestClient(create_app(settings)) as test_client:
+    with serving(create_app(settings)) as test_client:
         yield test_client
 
 
@@ -48,11 +51,48 @@ def test_health_does_not_leak_filesystem_paths(client: TestClient) -> None:
 def test_unknown_route_uses_structured_error(client: TestClient) -> None:
     response = client.get("/api/v1/nope")
     assert response.status_code == 404
-    assert response.json() == {"error": {"code": "NOT_FOUND", "message": "Not Found"}}
+    assert response.json()["error"]["code"] == "NOT_FOUND"
 
 
-def test_root_points_to_health(client: TestClient) -> None:
-    assert client.get("/").json()["health"] == "/api/v1/health"
+def test_service_root_points_to_health(client: TestClient) -> None:
+    assert client.get("/api/v1").json()["health"] == "/api/v1/health"
+
+
+def test_settings_endpoint_reports_runtime_configuration(client: TestClient) -> None:
+    response = client.get("/api/v1/settings")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["host"] == "127.0.0.1"
+    assert body["port"] == 8765
+    assert set(body) == {
+        "host",
+        "port",
+        "log_level",
+        "data_dir",
+        "database_path",
+        "scheduler_max_active",
+        "scheduler_max_downloads",
+        "scheduler_max_encoders",
+        "scheduler_max_attempts",
+        "scheduler_retry_backoff_seconds",
+    }
+
+
+def test_web_ui_is_served_when_a_build_exists(tmp_path) -> None:
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "assets" / "app.js").write_text("console.log('ui')")
+    (dist / "index.html").write_text("<!doctype html><head><title>LMD</title></head>")
+    settings = Settings(data_dir=tmp_path / "data", web_dist=dist)
+
+    with serving(create_app(settings)) as client:
+        root = client.get("/")
+        assert root.status_code == 200
+        assert "<title>LMD</title>" in root.text
+        # deep links render the SPA shell, unknown API routes stay JSON 404
+        assert client.get("/history").status_code == 200
+        assert client.get("/api/v1/nope").json()["error"]["code"] == "NOT_FOUND"
+        assert client.get("/assets/app.js").status_code == 200
 
 
 def test_startup_creates_the_database_file(client: TestClient, tmp_path) -> None:

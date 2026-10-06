@@ -33,4 +33,13 @@ export default tseslint.config(
       globals: { ...globals.node },
     },
   },
+  {
+    // TypeScript inside <script lang="ts"> needs the TS parser wired in
+    // explicitly; without it the Svelte parser falls back to espree and every
+    // type-only import is a syntax error.
+    files: ['**/*.svelte', '**/*.svelte.ts', '**/*.svelte.js'],
+    languageOptions: {
+      parserOptions: { parser: tseslint.parser },
+    },
+  },
 )

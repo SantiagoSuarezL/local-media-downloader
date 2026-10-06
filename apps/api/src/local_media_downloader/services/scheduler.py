@@ -228,6 +228,7 @@ class Scheduler:
         job = jobs.get_job(self._conn, job_id)
         if job is None:
             return
+        _log_error_detail(self._working_dir, job_id, error)
         retryable = error.retryable and attempts < self._limits.max_attempts
         if not retryable:
             with suppress(Exception):
@@ -264,6 +265,21 @@ class Scheduler:
         except Exception:
             return
         self.wake()
+
+
+def _log_error_detail(working_dir: str, job_id: str, error: ExtractionError) -> None:
+    """Persist raw tool stderr where diagnostics can reach it (SPEC §E)."""
+    if not error.detail:
+        return
+    try:
+        from pathlib import Path
+
+        logs = Path(working_dir) / "jobs" / job_id / "logs"
+        logs.mkdir(parents=True, exist_ok=True)
+        with (logs / "error.log").open("a", encoding="utf-8") as handle:
+            handle.write(f"[{error.code.value}] {error.message}\n{error.detail}\n\n")
+    except OSError:
+        pass
 
 
 def _parse_plan(job: jobs.Job) -> ExecutionPlan:

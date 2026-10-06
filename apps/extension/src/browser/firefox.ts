@@ -1,4 +1,4 @@
-import type { ActiveTab, BrowserBridge } from './types'
+import type { ActiveTab, BrowserBridge, KeyValueStore } from './types'
 
 const ERROR_NO_ACTIVE_TAB = 'No active tab available'
 const ERROR_TABS_PERMISSION = 'The activeTab permission was not granted'
@@ -19,5 +19,18 @@ export class FirefoxBridge implements BrowserBridge {
 
   async openUrl(url: string): Promise<void> {
     await browser.tabs.create({ url })
+  }
+
+  storage(): KeyValueStore {
+    return {
+      async get(key: string): Promise<string | null> {
+        const found = await browser.storage.local.get(key)
+        const value = found[key]
+        return typeof value === 'string' ? value : null
+      },
+      async set(key: string, value: string): Promise<void> {
+        await browser.storage.local.set({ [key]: value })
+      },
+    }
   }
 }

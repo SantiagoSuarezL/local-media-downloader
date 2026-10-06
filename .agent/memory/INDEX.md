@@ -5,8 +5,8 @@
 ## Estado del proyecto
 
 **Proyecto:** local-media-downloader
-**Fase actual:** 7
-**Próxima fase:** 8 — Svelte 5 web UI
+**Fase actual:** 11 (pendiente, sin empezar — es un gate de evaluación, no implementación)
+**Próxima fase:** 12 — Batch + history
 
 ## Tabla de archivos
 

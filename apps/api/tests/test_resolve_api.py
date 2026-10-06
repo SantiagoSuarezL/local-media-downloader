@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from conftest import serving
 from local_media_downloader.adapters.normalize import normalize
 from local_media_downloader.app import create_app
 from local_media_downloader.config import Settings
@@ -50,17 +51,19 @@ def stub_extractor() -> StubExtractor:
 @pytest.fixture
 def client(tmp_path, monkeypatch, stub_extractor: StubExtractor) -> Iterator[TestClient]:
     monkeypatch.setenv("LMD_DATA_DIR", str(tmp_path / "data"))
-    with TestClient(create_app(Settings.from_env(), extractor_factory=lambda: stub_extractor)) as c:
+    monkeypatch.setenv("LMD_WEB_DIST", str(tmp_path / "no-web-build"))
+    app = create_app(Settings.from_env(), extractor_factory=lambda: stub_extractor)
+    with serving(app) as c:
         yield c
 
 
 @pytest.fixture
 def failing_client(tmp_path, monkeypatch) -> Iterator[TestClient]:
     monkeypatch.setenv("LMD_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("LMD_WEB_DIST", str(tmp_path / "no-web-build"))
     error = ExtractionError(ErrorCode.UNSUPPORTED_SOURCE, "This site is not supported.")
-    with TestClient(
-        create_app(Settings.from_env(), extractor_factory=lambda: StubExtractor(error))
-    ) as c:
+    app = create_app(Settings.from_env(), extractor_factory=lambda: StubExtractor(error))
+    with serving(app) as c:
         yield c
 
 

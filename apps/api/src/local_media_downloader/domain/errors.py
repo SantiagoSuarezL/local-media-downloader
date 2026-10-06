@@ -18,6 +18,8 @@ class ErrorCode(StrEnum):
     # Request / input
     INVALID_URL = "INVALID_URL"
     UNSUPPORTED_PROTOCOL = "UNSUPPORTED_PROTOCOL"
+    # A URL that points at this machine or the local network (SSRF guard).
+    BLOCKED_SOURCE = "BLOCKED_SOURCE"
 
     # Source availability
     UNSUPPORTED_SOURCE = "UNSUPPORTED_SOURCE"

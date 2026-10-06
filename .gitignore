@@ -7,20 +7,23 @@ __pycache__/
 *.so
 
 # Distribution / packaging
+# (anchored to root with `/`: these bare names from the template also match
+# real source trees anywhere in the repo — e.g. `lib/` once swallowed
+# `apps/web/src/lib/` whole. Ref: Regla de Oro 8.1)
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
+/build/
+/develop-eggs/
+/dist/
+/downloads/
+/eggs/
+/.eggs/
+/lib/
+/lib64/
+/parts/
+/sdist/
+/var/
+/wheels/
+/share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
@@ -37,9 +40,9 @@ pip-log.txt
 pip-delete-this-directory.txt
 
 # Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
+/htmlcov/
+/.tox/
+/.nox/
 .coverage
 .coverage.*
 .cache
@@ -50,7 +53,7 @@ coverage.xml
 *.lcov
 .hypothesis/
 .pytest_cache/
-cover/
+/cover/
 
 # Translations
 *.mo
@@ -74,7 +77,7 @@ docs/_build/
 
 # PyBuilder
 .pybuilder/
-target/
+/target/
 
 # Jupyter Notebook
 .ipynb_checkpoints
@@ -271,11 +274,11 @@ graphify-out/
 *.swp
 *.swo
 *~
-tmp/
-temp/
+/tmp/
+/temp/
 
 # Coverage (htmlcov/ y .coverage* ya están arriba)
-coverage/
+/coverage/
 
 # Editors / OS
 .idea/
