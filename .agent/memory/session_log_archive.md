@@ -202,3 +202,176 @@ CI, para que un clone nuevo no vuelva a tropezar con esto.
 `pnpm lint`, `pnpm format:check`, `pnpm check`, `pnpm -r test` (4), `pnpm build`.
 
 → Regla de Oro 1.3 (`lessons_learned.md`).
+
+---
+
+### Fase 3 — yt-dlp adapter: completada
+
+**Dependencias:** `yt-dlp==2026.8.19` vía `uv add` (dependencia Python; se invoca como
+`[sys.executable, "-m", "yt_dlp"]`, nunca del PATH). **Deno 2.9.6 vía pnpm** como
+devDependency raíz: su binario se descarga en postinstall, así que hizo falta
+`onlyBuiltDependencies: [deno]` en `pnpm-workspace.yaml` — en pnpm 11 esa setting ya NO
+se lee del campo `pnpm` de package.json (warning explícito). Se le pasa a yt-dlp con
+`--js-runtimes deno:<path>`, no por variable de entorno.
+
+**Estructura nueva (capas, principio #3):**
+- `domain/errors.py` — `ErrorCode` (16 categorías) + `ExtractionError` con flag
+  `retryable` y `detail` sólo para diagnóstico.
+- `domain/media.py` — `MediaFormat`, `MediaSource`, `MediaInfo`, `FormatKind`.
+- `domain/extractor.py` — `Protocol Extractor` (adapters reemplazables, #24).
+- `domain/urls.py` — allowlist http/https; rechaza `file:`, `javascript:`, `data:`, etc.
+- `adapters/tool_paths.py` — orden override → `node_modules/.bin` → venv → PATH.
+- `adapters/errors.py` — tabla de mapeo stderr de yt-dlp → `ErrorCode`, como datos.
+- `adapters/normalize.py` — el único lugar que conoce el schema de yt-dlp.
+- `adapters/progress.py` — parseo de `--progress-template` con delimitador privado.
+- `adapters/yt_dlp.py` — `YtDlpExtractor` (version/resolve/download), argv arrays.
+- `services/resolve.py` — `ResolveService` + `error_response` con status por código.
+- API: `POST /api/v1/resolve`, y `/api/v1/health` ahora incluye `extractor` con la
+  versión y el flag `may_be_outdated`. `create_app` acepta `extractor_factory` para que
+  los tests no lanzen el network.
+
+**Cuatro decisiones de diseño que cambiaron código, no tests:**
+1. **`quality_score` estaba mal.** Daba 400 puntos a "combined", así que un 360p muxed
+   (489) le ganaba a un 1080p video-only (314) — exactamente el "fake maximum quality"
+   del principio #6. Reescrito: la resolución domina y "combined" sólo desempata.
+2. **La validación de URL vivía en el adapter**, así que un extractor stub la
+   esquivaba y `file:///C:/...` devolvía 200. Movida al service (frontera), mantenida
+   también en el adapter.
+3. **Links directos a media devolvían 0 formatos.** El extractor `generic` reporta
+   `vcodec/acodec: unknown` y el filtro los descartaba. Ahora se clasifica por
+   contenedor (`_VIDEO_CONTAINERS`) y se emite un warning que obliga a confirmar con
+   FFprobe antes de afirmar capacidades (principio #17).
+4. **Ordering del mapeo de errores:** `HTTP Error 429` caía en el patrón genérico de
+   4xx y se reportaba `SOURCE_UNAVAILABLE` en vez de `RATE_LIMITED`. `429` quedó
+   excluido del patrón genérico y la regla de rate limit se evalúa antes. Además
+   `available in your country` (no `not available in your country`) es lo que yt-dlp
+   emite de verdad.
+
+**Tests: 128 unitarios + 3 live opt-in** (`LMD_LIVE_NETWORK=1`; los live nunca corren
+en CI). Cubren normalización contra un fixture JSON real, la tabla de mapeo de errores
+de forma exhaustiva, el parseo de progress (incluido que NUNCA parsea la línea humana),
+la política de URLs, el contrato del endpoint con extractor stub, y que la versión
+reportada sea la pineada en `uv.lock` (`yt-dlp --version` da `2026.08.19` con zero
+padding, la metadata da `2026.8.19`, así que se compara numéricamente).
+
+**Acceptance verificada en vivo** contra
+`archive.org/.../big_buck_bunny_720p_surround.mp4`: resuelve a `MediaInfo` con
+extractor `generic`, 1 formato `video`, `duration: None` (no se sondea un link directo:
+null, no valor inventado), y sin ninguna clave del schema de yt-dlp en la respuesta.
+Los 3 tests live pasan. El bug del punto 3 se detectó justamente con esta corrida.
+
+**Gates:** ruff + format clean, pyright 0, pytest 128/128, y del lado JS eslint,
+prettier, svelte-check+tsc, vitest, ambos builds. Prettier detectó `pnpm-workspace.yaml`
+sin formatear y lo corregí antes de commitear.
+
+### Addendum 5 — Auditoría de SQL ( playbook cloud aplicado con criterio)
+
+El usuario recomendó 6 prácticas de un proyecto previo (donde un mal indexado costó
+500M de reads en Postgres serverless). Todas evaluadas **con medición, no de opinión**:
+`EXPLAIN QUERY PLAN` + timing sobre 5.000 / 50.000 / 200.000 jobs.
+
+**Se aplicaron (2, y ambas escondían algo real):**
+- **Paginación por cursor sin `OFFSET`** → bug latente: `ORDER BY priority DESC,
+  created_at` no tenía desempate único. `created_at` tiene resolución de milisegundos,
+  así que un keyset cursor saltaba o duplicaba filas en los bordes de página. Ahora el
+  orden es `(priority DESC, created_at DESC, id DESC)`, hay `JobCursor`/`cursor_of()` y
+  `MAX_PAGE_SIZE=500`. Tests que fuerzan colisiones totales de `(priority, created_at)`
+  para probar que no hay skips ni duplicados.
+- **`idx_jobs_sort`** (migración v2) — el único índice más allá de columnas de WHERE/JOIN.
+  Quita el TEMP B-TREE de `list_jobs`: página superficial **26.10 ms → 0.18 ms (145x)**,
+  profunda 12.92 → 5.86 ms, a cambio de 3.7 → 4.0 µs/fila en transiciones (+8%).
+
+**Se rechazaron con motivo escrito (4):**
+- **Caché de endpoints** (`s-maxage`, CDN, Redis): no hay CDN — la app liga a loopback.
+  Cachear el estado de jobs 60 s mostraría al usuario un job viejo, contradiciendo el
+  progreso en vivo por SSE. Redis prohibido por principio #33. Lo que sí se agregó es lo
+  opuesto: `Cache-Control: no-store` en todas las respuestas.
+- **Connection pooling** (PgBouncer, Prisma Accelerate): es para Postgres serverless.
+  Acá hay un worker Granian con una conexión SQLite en `app.state.db`.
+- **Rate limiting con Upstash Redis**: los bots no rastrean 127.0.0.1. El riesgo real es
+  una página web local pegándole a la API → Origin validation + token local, ya
+  planificado para Fase 10.
+- **Índices indiscriminados**: probé dos (`(state, priority, created_at)` y
+  `(updated_at)`); NO quitaron el temp b-tree (un `IN` multi-estado no se sirve con un
+  índice compuesto así) y costaron **3x** en escrituras (10.2 vs 3.5 µs/fila). Descartados.
+
+**Dato de contexto que reencuadra todo:** el costo del escaneo total de `jobs` es 5k=1.0 ms
+· 50k=11 ms · 200k=44 ms. El escaneo nunca fue el problema; **el sort sí**. Por eso la
+regla de oro es: "SCAN TABLE" no es un bug por sí mismo, "TEMP B-TREE FOR ORDER BY" en una
+consulta paginada sí lo es. → Regla de Oro 1.4.
+
+**Nuevo test permanente:** `test_query_plans.py` asserta que los hot paths usan índice y
+que `list_jobs`/cursor no tengan temp sort, con las mediciones documentadas en el
+docstring para que nadie re-agre los índices descartados.
+
+**Verificado:** migración v2 aplicada sobre `data/app.db` real (schema v1 → v2),
+`list_jobs` en 0.03 ms. Gates: ruff, pyright 0, pytest 141/141.
+
+### Chequeo final PROTOCOLO_SALIDA
+
+- [x] 1 sola sesión en detalle (Sesión 4). Sesiones 1-3 comprimidas en historial con
+      detalle verbatim en `session_log_archive.md`.
+- [x] Sin duplicación Regla↔tech_stack: la narrativa vive sólo en
+      `lessons_learned.md`; `tech_stack.md` referencia por número.
+- [x] Loose ends de la sesión: ninguno.
+
+---
+
+### Sesión 5 — 2026-10-06 — Fase 4 + Fase 5 completadas
+
+#### Addendum Fase 5 — Execution planner
+
+- `domain/intent.py` — `OutputIntent` tipado (media/quality/container/audio/
+  video_codec/processing) + `parse_intent` que rechaza keys desconocidas
+  (no puede entrar un flag arbitrario de ffmpeg) y combos imposibles
+  (video+mp3, audio=only con media=video).
+- `domain/plan.py` — `ExecutionPlan`/`PlanStep` serializables
+  (`execution_plan_json`, reproducible).
+- `services/planner.py` — copy preferido; transcode solo si el contenedor
+  fuente no satisface el intent (`_CONTAINER_ACCEPTS`); audio →
+  `extract_audio` con codec por contenedor (mp3→libmp3lame, m4a→aac,
+  opus→libopus, wav→pcm_s16le); remove audio → stream copy o transcode;
+  resize/trim rechazados hasta Fase 14.
+- `ErrorCode.UNSUPPORTED_INTENT` nuevo.
+- Tests: 9 nuevos en `test_planner.py` (copy preferido, transcode solo
+  necesario, webm source-compatible, mp3, remove audio, rechazo de keys
+  arbitrarias y resize). Gates: ruff/format clean, pyright 0, pytest
+  163 passed / 3 live skipped.
+
+#### Qué se agregó (Fase 4)
+
+- `domain/probe.py` — `MediaProbe`/`StreamProbe`/`StreamKind`, contrato
+  normalizado sin schema de FFprobe; ausencia como `None` (§4).
+- `domain/processor.py` — ports `MetadataInspector` y `MediaProcessor`
+  (replaceable adapters, #24), con `name`/`version` + operaciones.
+- `adapters/ffprobe.py` — `FFprobeInspector.inspect(path)` → `MediaProbe`;
+  `parse_probe` puro y testeado; argv arrays, errores clasificados.
+- `adapters/ffmpeg.py` — `FFmpegProcessor`: `remux` (`-c copy -map 0`),
+  `transcode` (libx264/aac, veryfast), `extract_audio` (libmp3lame 192k),
+  `video_only` (`-map 0:v:0 -c:v copy -an`), y `validate` (re-inspect +
+  chequeos: existe, no vacío, streams presentes, duración > 0). Stream copy
+  preferido; transcode solo cuando hace falta (#84). Timeout borra el
+  destino parcial.
+- `domain/errors.py` — `ErrorCode.VALIDATION_FAILED` nuevo.
+- `adapters/tool_paths.py` — `_tool_argv` compartido; `ffprobe_argv()` con
+  override `LMD_FFPROBE`, mismo orden que `LMD_FFMPEG`.
+
+#### Decisiones
+
+1. **La validación re-inspecciona el output con FFprobe** — exit code 0 de
+   ffmpeg nunca declara archivo válido (#7); `validate` corre en el adapter.
+2. **Los tests de aceptación usan ffmpeg real offline** (clip sintético
+   lavfi, 1 s, 160x120) con `pytest.skip` si no están instalados — la
+   Fase 3 probó que el fixture real detecta los bugs.
+3. **`parse_probe` tolera strings numéricas de ffprobe** (`"duration":
+   "12.3"`, fps como `"30000/1001"`) y streams desconocidos como `OTHER`.
+
+#### Acceptance verificada (tests reales sobre clip sintético)
+
+MP4 producido, MP3 producido, audio removido, remux, y metadata del output
+validada vía FFprobe — todo verde con ffmpeg/ffprobe del PATH (scoop).
+
+#### Gates
+
+ruff + format clean, pyright 0, pytest 154 passed / 3 live skipped (141 → 154
+con los 13 nuevos: 5 parse_probe + 8 acceptance ffmpeg). JS sin cambios.

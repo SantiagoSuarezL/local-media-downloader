@@ -27,6 +27,12 @@ class Settings:
     data_dir: Path = field(default_factory=lambda: _DEFAULT_DATA_DIR)
     # Maximum attempts at automatic recovery are Phase 7; keep the surface small.
     max_health_tool_timeout_seconds: float = 2.0
+    # Scheduler budget (Phase 6).
+    scheduler_max_active: int = 3
+    scheduler_max_downloads: int = 2
+    scheduler_max_encoders: int = 1
+    scheduler_max_attempts: int = 3
+    scheduler_retry_backoff_seconds: float = 2.0
 
     @property
     def database_path(self) -> Path:
@@ -40,6 +46,11 @@ class Settings:
             log_level=os.environ.get("LMD_LOG_LEVEL", _DEFAULT_LOG_LEVEL).upper(),
             data_dir=Path(os.environ.get("LMD_DATA_DIR", str(_DEFAULT_DATA_DIR))),
             max_health_tool_timeout_seconds=float(os.environ.get("LMD_HEALTH_TOOL_TIMEOUT", "2.0")),
+            scheduler_max_active=int(os.environ.get("LMD_SCHED_MAX_ACTIVE", "3")),
+            scheduler_max_downloads=int(os.environ.get("LMD_SCHED_MAX_DOWNLOADS", "2")),
+            scheduler_max_encoders=int(os.environ.get("LMD_SCHED_MAX_ENCODERS", "1")),
+            scheduler_max_attempts=int(os.environ.get("LMD_SCHED_MAX_ATTEMPTS", "3")),
+            scheduler_retry_backoff_seconds=float(os.environ.get("LMD_SCHED_RETRY_BACKOFF", "2.0")),
         )
 
     def ensure_data_dir(self) -> Path:

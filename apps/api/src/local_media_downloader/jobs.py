@@ -60,6 +60,8 @@ class Job:
     output_path: str | None
     created_by: str | None
     priority: int
+    intent_json: str | None = None
+    execution_plan_json: str | None = None
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> Job:
@@ -82,6 +84,8 @@ class Job:
             output_path=row["output_path"],
             created_by=row["created_by"],
             priority=row["priority"],
+            intent_json=row["intent_json"],
+            execution_plan_json=row["execution_plan_json"],
         )
 
 
@@ -92,6 +96,9 @@ def create_job(
     created_by: str = "ui",
     title: str | None = None,
     priority: int = 0,
+    intent_json: str | None = None,
+    execution_plan_json: str | None = None,
+    state: JobState = JobState.CREATED,
 ) -> Job:
     job_id = str(uuid.uuid4())
     now = _now()
@@ -99,19 +106,21 @@ def create_job(
         conn.execute(
             """
             INSERT INTO jobs (id, created_at, updated_at, state, source_url, source_url_hash,
-                              title, created_by, priority)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                              title, created_by, priority, intent_json, execution_plan_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job_id,
                 now,
                 now,
-                JobState.CREATED.value,
+                state.value,
                 source_url,
                 hash_url(source_url),
                 title,
                 created_by,
                 priority,
+                intent_json,
+                execution_plan_json,
             ),
         )
         _record_event(conn, job_id, "JOB_CREATED", {"created_by": created_by})
@@ -119,6 +128,27 @@ def create_job(
     if job is None:  # pragma: no cover — insert just happened
         raise RuntimeError("job vanished after insert")
     return job
+
+
+def increment_attempts(conn: sqlite3.Connection, job_id: str) -> int:
+    with transaction(conn):
+        conn.execute(
+            "UPDATE jobs SET attempt_count = attempt_count + 1, updated_at = ? WHERE id = ?",
+            (_now(), job_id),
+        )
+    job = get_job(conn, job_id)
+    if job is None:  # pragma: no cover
+        raise KeyError(job_id)
+    return job.attempt_count
+
+
+def set_output_path(conn: sqlite3.Connection, job_id: str, output_path: str) -> None:
+    with transaction(conn):
+        conn.execute(
+            "UPDATE jobs SET output_path = ?, updated_at = ? WHERE id = ?",
+            (output_path, _now(), job_id),
+        )
+        _record_event(conn, job_id, "OUTPUT_SET", {"output_path": output_path})
 
 
 def get_job(conn: sqlite3.Connection, job_id: str) -> Job | None:

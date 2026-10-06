@@ -1,0 +1,269 @@
+"""Job executor: runs an ExecutionPlan against local tools.
+
+The scheduler owns the durable state machine; the executor owns the actual
+work for one job, publishing the normalized progress model and honoring the
+cooperative cancel event. Every blocking tool call runs in a thread so the
+asyncio loop stays responsive (one worker never stalls the others).
+
+Concurrency budgets live in semaphores shared by the executor instance: at
+most ``max_downloads`` yt-dlp downloads and at most ``max_encoders`` ffmpeg
+processes run at once. An encoder slot is held only for the FFmpeg stages —
+a downloading job never holds an encoder.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import shutil
+import sqlite3
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Protocol
+
+from .. import jobs
+from ..adapters.ffmpeg import FFmpegProcessor
+from ..adapters.progress import DownloadProgress
+from ..adapters.yt_dlp import YtDlpExtractor
+from ..domain.errors import ErrorCode, ExtractionError
+from ..domain.plan import ExecutionPlan
+from ..domain.progress import JobProgress
+from ..job_state import JobState
+from .events import EventBus, StreamEvent
+
+
+class JobCancelled(Exception):
+    """Raised when the cooperative cancel event fires between stages."""
+
+
+class MediaTool(Protocol):
+    """The slice of the FFmpeg adapter the executor needs (injectable for tests)."""
+
+    def remux(self, source: Path, destination: Path, *, timeout: float = ...) -> Path: ...
+
+    def transcode(self, source: Path, destination: Path, *, timeout: float = ...) -> Path: ...
+
+    def extract_audio(
+        self,
+        source: Path,
+        destination: Path,
+        *,
+        codec: str = ...,
+        bitrate: str = ...,
+        timeout: float = ...,
+    ) -> Path: ...
+
+    def video_only(self, source: Path, destination: Path, *, timeout: float = ...) -> Path: ...
+
+    def validate(self, path: Path, *, timeout: float = ...) -> object: ...
+
+
+class Downloader(Protocol):
+    """The slice of the yt-dlp adapter the executor needs (injectable for tests)."""
+
+    def download(
+        self,
+        url: str,
+        *,
+        destination: Path,
+        format_selector: str,
+        timeout: float | None = None,
+    ) -> Iterator[DownloadProgress]: ...
+
+
+class DefaultExecutor:
+    def __init__(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        extractor: Downloader | None = None,
+        processor: MediaTool | None = None,
+        data_dir: Path,
+        bus: EventBus,
+        download_sem: asyncio.Semaphore,
+        encode_sem: asyncio.Semaphore,
+    ) -> None:
+        self._conn = conn
+        self._extractor = extractor if extractor is not None else YtDlpExtractor()
+        self._processor: MediaTool = processor if processor is not None else FFmpegProcessor()
+        self._data_dir = data_dir
+        self._bus = bus
+        self._download_sem = download_sem
+        self._encode_sem = encode_sem
+
+    async def run(
+        self,
+        job: jobs.Job,
+        plan: ExecutionPlan,
+        cancel: asyncio.Event,
+    ) -> Path:
+        job_dir = self._data_dir / "jobs" / job.id
+        source_dir = job_dir / "source"
+        work_dir = job_dir / "work"
+        output_dir = job_dir / "output"
+        for directory in (source_dir, work_dir, output_dir):
+            directory.mkdir(parents=True, exist_ok=True)
+
+        selector = _plan_detail(plan, "SELECT_FORMAT", "selector") or "best"
+        url = job.source_url or ""
+        self._loop = asyncio.get_running_loop()
+
+        # --- download stage (yt-dlp), budgeted by the download semaphore ---
+        async with self._download_sem:
+            self._publish_state(job.id, JobState.DOWNLOADING, stage="download")
+            try:
+                await asyncio.to_thread(self._download, job, url, selector, source_dir, cancel)
+            except Exception:
+                raise
+        _check_cancel(cancel)
+
+        downloaded = _find_media_file(source_dir)
+        if downloaded is None:
+            raise ExtractionError(
+                ErrorCode.EXTRACTION_FAILED,
+                "The download produced no media file.",
+                retryable=False,
+            )
+
+        # --- processing stage (ffmpeg), budgeted by the encoder semaphore ---
+        operation = _first_operation(plan)
+        work_file = downloaded
+        if operation is not None:
+            jobs.transition(self._conn, job.id, JobState.PROCESSING, current_stage="processing")
+            self._publish_state(job.id, JobState.PROCESSING, stage="processing")
+            container = operation[2].get("container", "mp4")
+            target = work_dir / f"processed.{container}"
+            async with self._encode_sem:
+                await asyncio.to_thread(self._process, operation, downloaded, target, cancel)
+            work_file = target
+            _check_cancel(cancel)
+
+        jobs.transition(self._conn, job.id, JobState.VALIDATING, current_stage="validating")
+        self._publish_state(job.id, JobState.VALIDATING, stage="validating")
+        await asyncio.to_thread(self._processor.validate, work_file)
+
+        jobs.transition(self._conn, job.id, JobState.COMMITTING, current_stage="committing")
+        container = _final_container(plan) or work_file.suffix.lstrip(".") or "bin"
+        final = output_dir / f"{job.title or job.id}.{container}"
+        shutil.move(str(work_file), str(final))
+        jobs.set_output_path(self._conn, job.id, str(final))
+        return final
+
+    def _download(
+        self,
+        job: jobs.Job,
+        url: str,
+        selector: str,
+        source_dir: Path,
+        cancel: asyncio.Event,
+    ) -> None:
+        for progress in self._extractor.download(
+            url, destination=source_dir, format_selector=selector
+        ):
+            if cancel.is_set():
+                raise JobCancelled()
+            event = StreamEvent(
+                kind="progress",
+                job_id=job.id,
+                payload={
+                    "job_id": job.id,
+                    **JobProgress(
+                        state=JobState.DOWNLOADING.value,
+                        stage="download",
+                        percentage=progress.percentage,
+                        downloaded_bytes=progress.downloaded_bytes,
+                        total_bytes=progress.total_bytes,
+                        speed_bytes_per_second=progress.speed_bytes_per_second,
+                        eta_seconds=progress.eta_seconds,
+                    ).as_dict(),
+                },
+            )
+            # _download runs in a worker thread; the bus is asyncio-bound.
+            self._loop.call_soon_threadsafe(self._bus.publish, event)
+
+    def _process(
+        self,
+        operation: tuple[str, str, dict[str, str]],
+        source: Path,
+        target: Path,
+        cancel: asyncio.Event,
+    ) -> None:
+        if cancel.is_set():
+            raise JobCancelled()
+        kind, _tool, detail = operation
+        if kind == "REMUX":
+            self._processor.remux(source, target)
+        elif kind == "TRANSCODE":
+            self._processor.transcode(source, target)
+        elif kind == "EXTRACT_AUDIO":
+            self._processor.extract_audio(source, target, codec=detail.get("codec", "libmp3lame"))
+        elif kind == "VIDEO_ONLY":
+            self._processor.video_only(source, target)
+        else:  # pragma: no cover — guarded by _first_operation
+            raise ExtractionError(
+                ErrorCode.UNSUPPORTED_INTENT, f"unknown processing step {kind}", retryable=False
+            )
+
+    def _publish_state(self, job_id: str, state: JobState, *, stage: str) -> None:
+        self._bus.publish(
+            StreamEvent(
+                kind="state",
+                job_id=job_id,
+                payload={
+                    "job_id": job_id,
+                    **JobProgress(state=state.value, stage=stage).as_dict(),
+                },
+            )
+        )
+
+
+def _check_cancel(cancel: asyncio.Event) -> None:
+    if cancel.is_set():
+        raise JobCancelled()
+
+
+def _plan_detail(plan: ExecutionPlan, kind: str, key: str) -> str | None:
+    for step in plan.steps:
+        if step.kind == kind:
+            return step.detail.get(key)
+    return None
+
+
+def _first_operation(plan: ExecutionPlan) -> tuple[str, str, dict[str, str]] | None:
+    for step in plan.steps:
+        if step.kind in {"REMUX", "TRANSCODE", "EXTRACT_AUDIO", "VIDEO_ONLY"}:
+            return step.kind, step.tool, dict(step.detail)
+    return None
+
+
+def _final_container(plan: ExecutionPlan) -> str | None:
+    for step in plan.steps:
+        if step.kind in {"REMUX", "TRANSCODE", "EXTRACT_AUDIO", "VIDEO_ONLY"}:
+            container = step.detail.get("container")
+            if container:
+                return container
+    return None
+
+
+def _find_media_file(directory: Path) -> Path | None:
+    candidates = sorted(
+        p
+        for p in directory.iterdir()
+        if p.is_file()
+        and p.suffix.lower()
+        in {
+            ".mp4",
+            ".mkv",
+            ".webm",
+            ".mp3",
+            ".m4a",
+            ".opus",
+            ".wav",
+            ".mov",
+            ".m4v",
+            ".avi",
+            ".flv",
+            ".part",
+        }
+        and not p.name.endswith(".part")
+    )
+    return candidates[0] if candidates else None

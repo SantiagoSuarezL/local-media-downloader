@@ -7,25 +7,34 @@ later phases; nothing here calls yt-dlp or FFmpeg directly.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import sqlite3
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import __version__
+from . import __version__, jobs
+from .adapters.ffmpeg import FFmpegProcessor
 from .adapters.yt_dlp import YtDlpExtractor
 from .config import Settings
 from .db import initialize, schema_version
 from .diagnostics import detect_tools, storage_ready
 from .domain.errors import ExtractionError
 from .domain.extractor import Extractor
+from .domain.intent import parse_intent
+from .job_state import JobState
 from .logging_config import configure_logging, get_logger
+from .services.events import EventBus
+from .services.executor import DefaultExecutor
+from .services.planner import Planner
 from .services.resolve import ResolveService, error_response
+from .services.scheduler import ExecutorProtocol, Scheduler, SchedulerLimits
 
 _ERROR_NOT_FOUND = "NOT_FOUND"
 _ERROR_VALIDATION = "VALIDATION_ERROR"
@@ -45,8 +54,47 @@ _MINIMUM_YTDLP_VERSION = (2026, 1, 1)
 _NO_STORE = {"Cache-Control": "no-store"}
 
 
+class JobRequest(BaseModel):
+    url: str = Field(min_length=1, max_length=2048)
+    intent: dict[str, object]
+    title: str | None = None
+    priority: int = 0
+
+
+def _job_dict(job: jobs.Job) -> dict[str, object]:
+    return {
+        "id": job.id,
+        "state": job.state.value,
+        "source_url": job.source_url,
+        "title": job.title,
+        "progress": job.progress,
+        "current_stage": job.current_stage,
+        "error_code": job.error_code,
+        "error_message": job.error_message,
+        "output_path": job.output_path,
+        "priority": job.priority,
+        "attempt_count": job.attempt_count,
+    }
+
+
 def _error_payload(code: str, message: str) -> dict[str, object]:
     return {"error": {"code": code, "message": message}}
+
+
+async def _event_stream(bus: EventBus) -> AsyncGenerator[str, None]:
+    """Yield SSE frames for every bus event, replaying recent history first.
+
+    Module-level (not a closure) so tests can consume it directly: the
+    installed TestClient buffers whole responses, which hangs forever on an
+    infinite stream. The endpoint below is a thin wrapper around this.
+    """
+    queue = bus.subscribe()
+    try:
+        while True:
+            event = await queue.get()
+            yield event.as_sse()
+    finally:
+        bus.unsubscribe(queue)
 
 
 class ResolveRequest(BaseModel):
@@ -104,6 +152,7 @@ def create_app(
     settings: Settings | None = None,
     *,
     extractor_factory: Callable[[], Extractor] | None = None,
+    executor_factory: Callable[[], ExecutorProtocol] | None = None,
 ) -> FastAPI:
     """Build the application.
 
@@ -122,9 +171,39 @@ def create_app(
         logger.info(
             "database_ready", extra={"schema_version": schema_version(application.state.db)}
         )
+        bus = EventBus()
+        limits = SchedulerLimits(
+            max_active=settings.scheduler_max_active,
+            max_downloads=settings.scheduler_max_downloads,
+            max_encoders=settings.scheduler_max_encoders,
+            max_attempts=settings.scheduler_max_attempts,
+            retry_backoff_seconds=settings.scheduler_retry_backoff_seconds,
+        )
+        if executor_factory is not None:
+            executor = executor_factory()
+        else:
+            executor = DefaultExecutor(
+                application.state.db,
+                processor=FFmpegProcessor(),
+                data_dir=settings.data_dir,
+                bus=bus,
+                download_sem=asyncio.Semaphore(limits.max_downloads),
+                encode_sem=asyncio.Semaphore(limits.max_encoders),
+            )
+        scheduler = Scheduler(
+            application.state.db,
+            executor=executor,
+            bus=bus,
+            limits=limits,
+            working_dir=str(settings.data_dir),
+        )
+        application.state.bus = bus
+        application.state.scheduler = scheduler
+        scheduler.start()
         try:
             yield
         finally:
+            await scheduler.stop()
             application.state.db.close()
 
     app = FastAPI(
@@ -194,6 +273,75 @@ def create_app(
         logger.info("health_check")
         payload["extractor"] = _extractor_status(make_extractor)
         return payload
+
+    @app.get("/api/v1/events")
+    def events() -> StreamingResponse:
+        """SSE stream of normalized progress and scheduler events (§3)."""
+        bus: EventBus = app.state.bus
+        return StreamingResponse(
+            _event_stream(bus),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+        )
+
+    @app.post("/api/v1/jobs", status_code=201)
+    async def create_job_endpoint(payload: JobRequest, request: Request) -> JSONResponse:
+        """Validate intent, resolve the URL, plan, and enqueue a job."""
+        try:
+            intent = parse_intent(payload.intent)
+        except ExtractionError as error:
+            status, body = error_response(error)
+            return JSONResponse(status_code=status, content=body)
+        try:
+            service = ResolveService(make_extractor())
+            info = service.resolve(payload.url)
+            plan = Planner().plan(intent, info)
+        except ExtractionError as error:
+            status, body = error_response(error)
+            return JSONResponse(status_code=status, content=body)
+        job = jobs.create_job(
+            request.app.state.db,
+            source_url=payload.url,
+            title=payload.title or info.source.title,
+            priority=payload.priority,
+            intent_json=json.dumps(payload.intent),
+            execution_plan_json=json.dumps(plan.as_dict()),
+            state=JobState.QUEUED,
+        )
+        scheduler: Scheduler = request.app.state.scheduler
+        scheduler.wake()
+        job = jobs.get_job(request.app.state.db, job.id)
+        assert job is not None
+        return JSONResponse(status_code=201, content=_job_dict(job))
+
+    @app.get("/api/v1/jobs")
+    def list_jobs(request: Request) -> dict[str, object]:
+        found = jobs.list_jobs(request.app.state.db)
+        return {"jobs": [_job_dict(job) for job in found]}
+
+    @app.get("/api/v1/jobs/{job_id}")
+    def get_job(job_id: str, request: Request) -> JSONResponse:
+        job = jobs.get_job(request.app.state.db, job_id)
+        if job is None:
+            return JSONResponse(
+                status_code=404, content=_error_payload(_ERROR_NOT_FOUND, "job not found")
+            )
+        return JSONResponse(status_code=200, content=_job_dict(job))
+
+    @app.post("/api/v1/jobs/{job_id}/cancel")
+    def cancel_job(job_id: str, request: Request) -> JSONResponse:
+        scheduler: Scheduler = request.app.state.scheduler
+        try:
+            scheduler.request_cancel(job_id)
+        except KeyError:
+            return JSONResponse(
+                status_code=404, content=_error_payload(_ERROR_NOT_FOUND, "job not found")
+            )
+        except ValueError as exc:
+            return JSONResponse(status_code=409, content=_error_payload("CONFLICT", str(exc)))
+        job = jobs.get_job(request.app.state.db, job_id)
+        assert job is not None
+        return JSONResponse(status_code=200, content=_job_dict(job))
 
     @app.post("/api/v1/resolve")
     def resolve(payload: ResolveRequest) -> JSONResponse:

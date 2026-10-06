@@ -5,8 +5,8 @@
 ## Estado del proyecto
 
 **Proyecto:** local-media-downloader
-**Fase actual:** 4
-**Próxima fase:** 5 — Execution planner
+**Fase actual:** 7
+**Próxima fase:** 8 — Svelte 5 web UI
 
 ## Tabla de archivos
 
