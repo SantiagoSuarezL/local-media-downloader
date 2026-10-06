@@ -44,6 +44,9 @@ class ErrorCode(StrEnum):
     # A produced file failed post-processing validation (FFprobe checks).
     VALIDATION_FAILED = "VALIDATION_FAILED"
 
+    # Intent that cannot be mapped to a safe execution plan.
+    UNSUPPORTED_INTENT = "UNSUPPORTED_INTENT"
+
 
 # Retryable means "the same request may succeed later without user action".
 RETRYABLE: frozenset[ErrorCode] = frozenset(
