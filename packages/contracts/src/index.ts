@@ -87,7 +87,7 @@ export interface OutputIntent {
   container: string
   audio: 'include' | 'remove' | 'only'
   video_codec: string
-  processing: { resize: string | null; trim: string | null }
+  processing: { resize: string | null; trim: string | null; crop: string | null }
 }
 
 export interface CreateJobRequest {

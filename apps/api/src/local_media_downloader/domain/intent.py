@@ -23,7 +23,7 @@ _AUDIO_CONTAINERS = ("mp3", "m4a", "opus", "wav")
 _CONTAINERS = _VIDEO_CONTAINERS + _AUDIO_CONTAINERS
 
 _ALLOWED_KEYS = {"media", "quality", "container", "audio", "video_codec", "processing"}
-_PROCESSING_KEYS = {"resize", "trim"}
+_PROCESSING_KEYS = {"resize", "trim", "crop"}
 _PLAIN_SECONDS = re.compile(r"\d{1,5}(?:\.\d{1,3})?")
 _CLOCK = re.compile(r"(?:(\d{1,2}):)?([0-5]?\d):([0-5]?\d(?:\.\d{1,3})?)")
 _MAX_TRIM_SECONDS = 86_400.0
@@ -31,6 +31,10 @@ _HEIGHT_RE = re.compile(r"^(\d{2,4})p$")
 _DIMENSIONS_RE = re.compile(r"^(\d{2,5})x(\d{2,5})$")
 _MAX_RESIZE_HEIGHT = 4320
 _MAX_RESIZE_DIMENSION = 8192
+_CROP_BOX_RE = re.compile(r"^(\d{2,5})x(\d{2,5})$")
+_CROP_OFFSET_BOX_RE = re.compile(r"^(\d{2,5})x(\d{2,5})\+(\d{1,5})\+(\d{1,5})$")
+_MAX_CROP_DIMENSION = 8192
+_CROP_MESSAGE = "processing.crop must look like '640x480' or '640x480+100+50'"
 
 
 class MediaChoice(StrEnum):
@@ -53,9 +57,10 @@ class AudioChoice(StrEnum):
 class Processing:
     resize: str | None = None
     trim: str | None = None
+    crop: str | None = None
 
     def as_dict(self) -> dict[str, object]:
-        return {"resize": self.resize, "trim": self.trim}
+        return {"resize": self.resize, "trim": self.trim, "crop": self.crop}
 
 
 def parse_resize(value: str) -> str:
@@ -80,6 +85,41 @@ def parse_resize(value: str) -> str:
             return lowered
         raise _bad("processing.resize must look like '720p' or '1280x720'")
     raise _bad("processing.resize must look like '720p' or '1280x720'")
+
+
+def parse_crop(value: str) -> str:
+    """Parse ``WxH`` or ``WxH+X+Y`` into a normalized crop box.
+
+    Unlike :func:`parse_resize`, a crop box is EXACT, not a bounding box: the
+    adapter keeps precisely the requested rectangle. Offsets are non-negative
+    (a negative origin would silently pad with black). Both sides must be even
+    and within 2..8192 — odd crop sizes cannot be encoded by the H.264/VP9
+    yuv420p pixel format used by every video target, so rejecting them here is
+    more honest than failing inside ffmpeg.
+    """
+    raw = value.strip().lower()
+    offset = _CROP_OFFSET_BOX_RE.fullmatch(raw)
+    if offset is not None:
+        width, height, x, y = (int(part) for part in offset.groups())
+        valid_offset = x <= _MAX_CROP_DIMENSION and y <= _MAX_CROP_DIMENSION
+        if valid_offset and _valid_crop_size(width, height):
+            return f"{width}x{height}+{x}+{y}"
+        raise _bad(_CROP_MESSAGE)
+    box = _CROP_BOX_RE.fullmatch(raw)
+    if box is not None:
+        width, height = (int(part) for part in box.groups())
+        if _valid_crop_size(width, height):
+            return f"{width}x{height}"
+    raise _bad(_CROP_MESSAGE)
+
+
+def _valid_crop_size(width: int, height: int) -> bool:
+    return (
+        2 <= width <= _MAX_CROP_DIMENSION
+        and 2 <= height <= _MAX_CROP_DIMENSION
+        and width % 2 == 0
+        and height % 2 == 0
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,10 +178,15 @@ def parse_intent(payload: Any) -> OutputIntent:
         raise _bad(f"unknown processing keys: {sorted(unknown_p)}")
     resize = processing.get("resize")
     trim = processing.get("trim")
+    crop = processing.get("crop")
     if resize is not None:
         if not isinstance(resize, str):
             raise _bad("processing.resize must be a string like '720p'")
         parse_resize(resize)
+    if crop is not None:
+        if not isinstance(crop, str):
+            raise _bad("processing.crop must be a string like '640x480'")
+        parse_crop(crop)
     if trim is not None and not isinstance(trim, str):
         raise _bad("processing.trim must be a string like '00:10-00:20'")
     if trim is not None:
@@ -167,7 +212,7 @@ def parse_intent(payload: Any) -> OutputIntent:
         container=container,
         audio=audio,
         video_codec=video_codec,
-        processing=Processing(resize=resize, trim=trim),
+        processing=Processing(resize=resize, trim=trim, crop=crop),
     )
 
 

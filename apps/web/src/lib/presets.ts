@@ -13,7 +13,7 @@ export function baseIntent(overrides: Partial<OutputIntent> = {}): OutputIntent 
     container: 'mp4',
     audio: 'include',
     video_codec: 'source',
-    processing: { resize: null, trim: null },
+    processing: { resize: null, trim: null, crop: null },
     ...overrides,
   }
 }

@@ -130,7 +130,7 @@ def test_parse_intent_validates_resize_up_front() -> None:
 
 def test_intent_dto_shape_is_unchanged_by_resize() -> None:
     intent = parse_intent(_intent("mp4", "include"))
-    assert intent.processing.as_dict() == {"resize": "720p", "trim": None}
+    assert intent.processing.as_dict() == {"resize": "720p", "trim": None, "crop": None}
 
 
 def test_resize_forces_transcode_even_when_copy_is_possible() -> None:

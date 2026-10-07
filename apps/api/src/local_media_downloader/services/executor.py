@@ -84,6 +84,7 @@ class TrimTool(Protocol):
         video_codec: str = ...,
         audio_codec: str = ...,
         resize_target: str | None = ...,
+        crop_box: str | None = ...,
         timeout: float = ...,
     ) -> Path: ...
 
@@ -110,6 +111,23 @@ class ResizeTool(Protocol):
         destination: Path,
         *,
         target: str,
+        video_codec: str = ...,
+        audio_codec: str = ...,
+        timeout: float = ...,
+    ) -> Path: ...
+
+
+@runtime_checkable
+class CropTool(Protocol):
+    """Optional capability: exact rectangle cropping (checked, never assumed)."""
+
+    def crop(
+        self,
+        source: Path,
+        destination: Path,
+        *,
+        box: str,
+        resize_target: str | None = ...,
         video_codec: str = ...,
         audio_codec: str = ...,
         timeout: float = ...,
@@ -270,8 +288,8 @@ class DefaultExecutor:
         if "trim_start" in detail and kind in {"TRANSCODE", "EXTRACT_AUDIO"}:
             self._process_trimmed(kind, detail, source, target)
             return
-        if "resize" in detail and kind == "TRANSCODE":
-            self._process_resized(detail, source, target)
+        if kind == "TRANSCODE" and ("resize" in detail or "crop" in detail):
+            self._process_geometry(detail, source, target)
             return
         if kind == "REMUX":
             self._processor.remux(source, target)
@@ -309,10 +327,17 @@ class DefaultExecutor:
         end = float(detail["trim_end"])
         if kind == "TRANSCODE":
             resize_target = detail.get("resize")
+            crop_box = detail.get("crop")
             if resize_target is not None and not isinstance(processor, ResizeTool):
                 raise ExtractionError(
                     ErrorCode.UNSUPPORTED_INTENT,
                     "The media processor does not support resizing.",
+                    retryable=False,
+                )
+            if crop_box is not None and not isinstance(processor, CropTool):
+                raise ExtractionError(
+                    ErrorCode.UNSUPPORTED_INTENT,
+                    "The media processor does not support cropping.",
                     retryable=False,
                 )
             processor.transcode_trimmed(
@@ -325,19 +350,89 @@ class DefaultExecutor:
                     "audio_codec", "none" if detail.get("audio") == "none" else "aac"
                 ),
                 resize_target=resize_target,
+                crop_box=crop_box,
             )
         else:
-            if "resize" in detail:
+            if "resize" in detail or "crop" in detail:
                 raise ExtractionError(
                     ErrorCode.UNSUPPORTED_INTENT,
-                    "Resize is not supported for audio-only output.",
+                    "Resize and crop are not supported for audio-only output.",
                     retryable=False,
                 )
             processor.extract_audio_trimmed(
                 source, target, start=start, end=end, codec=detail.get("codec", "libmp3lame")
             )
 
-    def _process_resized(self, detail: dict[str, str], source: Path, target: Path) -> None:
+    def _process_geometry(self, detail: dict[str, str], source: Path, target: Path) -> None:
+        """Apply resize and/or crop in a single ffmpeg pass.
+
+        Crop and resize are both pixel-geometry changes, so running them as two
+        encodes would double the generation loss. The crop is expressed in
+        source coordinates and is therefore applied first (see
+        ``_video_filter_args`` in the adapter).
+        """
+        crop_box = detail.get("crop")
+        resize_target = detail.get("resize")
+        if crop_box is not None and resize_target is not None:
+            self._process_cropped_and_resized(detail, crop_box, resize_target, source, target)
+        elif crop_box is not None:
+            self._process_cropped(
+                detail, crop_box, resize_target=None, source=source, target=target
+            )
+        elif resize_target is not None:
+            self._process_resized(detail, resize_target, source, target)
+
+    def _process_cropped(
+        self,
+        detail: dict[str, str],
+        crop_box: str,
+        *,
+        resize_target: str | None,
+        source: Path,
+        target: Path,
+    ) -> None:
+        processor = self._processor
+        if not isinstance(processor, CropTool):
+            raise ExtractionError(
+                ErrorCode.UNSUPPORTED_INTENT,
+                "The media processor does not support cropping.",
+                retryable=False,
+            )
+        processor.crop(
+            source,
+            target,
+            box=crop_box,
+            video_codec=detail.get("video_codec", "libx264"),
+            audio_codec=detail.get(
+                "audio_codec", "none" if detail.get("audio") == "none" else "aac"
+            ),
+            resize_target=resize_target,
+        )
+
+    def _process_cropped_and_resized(
+        self, detail: dict[str, str], crop_box: str, resize_target: str, source: Path, target: Path
+    ) -> None:
+        processor = self._processor
+        if not isinstance(processor, CropTool) or not isinstance(processor, ResizeTool):
+            raise ExtractionError(
+                ErrorCode.UNSUPPORTED_INTENT,
+                "The media processor does not support cropping and resizing.",
+                retryable=False,
+            )
+        processor.crop(
+            source,
+            target,
+            box=crop_box,
+            video_codec=detail.get("video_codec", "libx264"),
+            audio_codec=detail.get(
+                "audio_codec", "none" if detail.get("audio") == "none" else "aac"
+            ),
+            resize_target=resize_target,
+        )
+
+    def _process_resized(
+        self, detail: dict[str, str], resize_target: str, source: Path, target: Path
+    ) -> None:
         processor = self._processor
         if not isinstance(processor, ResizeTool):
             raise ExtractionError(
@@ -348,7 +443,7 @@ class DefaultExecutor:
         processor.resize(
             source,
             target,
-            target=detail["resize"],
+            target=resize_target,
             video_codec=detail.get("video_codec", "libx264"),
             audio_codec=detail.get(
                 "audio_codec", "none" if detail.get("audio") == "none" else "aac"

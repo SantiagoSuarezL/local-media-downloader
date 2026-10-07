@@ -97,23 +97,23 @@ class FFmpegProcessor:
         video_codec: str = "libx264",
         audio_codec: str = "aac",
         resize_target: str | None = None,
+        crop_box: str | None = None,
         timeout: float = DEFAULT_TIMEOUT,
     ) -> Path:
         """Re-encode only the ``[start, end)`` window (accurate cut, never stream copy).
 
-        When ``resize_target`` (``720p`` or ``1280x720`` bbox) is given, the
-        scale filter is applied in the same pass — trim + resize never run as
-        two lossy encodes.
+        When ``resize_target`` (``720p`` or ``1280x720`` bbox) and/or ``crop_box``
+        (``640x480`` or ``640x480+100+50``) are given, the geometry filters are
+        applied in the same pass — trim + crop + resize never run as two lossy
+        encodes. Crop is applied BEFORE scale: the box is expressed in source
+        coordinates, so it must select the pixels before they are scaled.
         """
-        video_filter: list[str] = []
-        if resize_target is not None:
-            video_filter = ["-vf", _scale_filter(resize_target)]
         result = self._run(
             source,
             destination,
             [
                 *_trim_args(start, end),
-                *video_filter,
+                *_video_filter_args(resize_target, crop_box),
                 "-c:v",
                 video_codec,
                 *(
@@ -126,6 +126,11 @@ class FFmpegProcessor:
             timeout=timeout,
         )
         checked = self._check_trimmed(result, start, end)
+        if crop_box is not None and resize_target is None:
+            # Exact-box check only holds when no scale follows: a single pass
+            # produces a single file, so after crop+scale the dimensions are
+            # the scaled ones (validated below by _check_resized).
+            checked = self._check_cropped(checked, crop_box)
         if resize_target is not None:
             return self._check_resized(checked, resize_target)
         return checked
@@ -217,6 +222,71 @@ class FFmpegProcessor:
             timeout=timeout,
         )
         return self._check_resized(result, target)
+
+    def crop(
+        self,
+        source: Path,
+        destination: Path,
+        *,
+        box: str,
+        resize_target: str | None = None,
+        video_codec: str = "libx264",
+        audio_codec: str = "aac",
+        timeout: float = DEFAULT_TIMEOUT,
+    ) -> Path:
+        """Cut out the exact rectangle ``box`` (``640x480`` / ``640x480+100+50``).
+
+        Unlike :meth:`resize`, the output geometry is EXACTLY the requested box:
+        cropping discards pixels, it never rescales them. When ``resize_target``
+        is also given, the scale runs in the same pass after the crop, so a
+        cropped-then-scaled job is encoded once.
+        Always transcodes — stream copy cannot change the visible frame.
+        """
+        result = self._run(
+            source,
+            destination,
+            [
+                *_video_filter_args(resize_target, box),
+                "-c:v",
+                video_codec,
+                *(
+                    ["-deadline", "good", "-cpu-used", "4"]
+                    if video_codec == "libvpx-vp9"
+                    else ["-preset", "veryfast"]
+                ),
+                *(["-an"] if audio_codec == "none" else ["-c:a", audio_codec]),
+            ],
+            timeout=timeout,
+        )
+        if resize_target is not None:
+            # Same single-pass reason as in transcode_trimmed: the final file
+            # holds scaled dimensions, so only the bbox check applies.
+            return self._check_resized(result, resize_target)
+        return self._check_cropped(result, box)
+
+    def _check_cropped(self, result: Path, box: str) -> Path:
+        try:
+            probe = self.validate(result)
+        except ExtractionError:
+            result.unlink(missing_ok=True)
+            raise
+        video = probe.video_stream
+        if video is None or video.width is None or video.height is None:
+            result.unlink(missing_ok=True)
+            raise ExtractionError(
+                ErrorCode.VALIDATION_FAILED,
+                "Cropped output has unknown dimensions.",
+                retryable=False,
+            )
+        expected_w, expected_h = _crop_size(box)
+        if (video.width, video.height) != (expected_w, expected_h):
+            result.unlink(missing_ok=True)
+            raise ExtractionError(
+                ErrorCode.VALIDATION_FAILED,
+                f"Cropped {video.width}x{video.height} does not match box {box}.",
+                retryable=False,
+            )
+        return result
 
     def _check_resized(self, result: Path, target: str) -> Path:
         try:
@@ -460,3 +530,37 @@ def _scale_filter(target: str) -> str:
     if target.endswith("p"):
         return f"scale=-2:{target[:-1]}"
     return f"scale={target.lower()}:force_original_aspect_ratio=decrease:force_divisible_by=2"
+
+
+def _crop_filter(box: str) -> str:
+    """Closed crop filter for a validated crop box (ffmpeg takes w:h:x:y)."""
+    size, _, offset = box.lower().partition("+")
+    width, _, height = size.partition("x")
+    if not offset:
+        return f"crop={width}:{height}"
+    return f"crop={width}:{height}:{offset.replace('+', ':')}"
+
+
+def _crop_size(box: str) -> tuple[int, int]:
+    size = box.lower().partition("+")[0]
+    width, _, height = size.partition("x")
+    try:
+        return int(width), int(height)
+    except ValueError:  # pragma: no cover — parse_crop validates the box
+        raise ExtractionError(
+            ErrorCode.VALIDATION_FAILED,
+            f"Invalid crop box {box!r}.",
+            retryable=False,
+        ) from None
+
+
+def _video_filter_args(resize_target: str | None, crop_box: str | None) -> list[str]:
+    """Build the single-pass geometry filter chain (crop before scale)."""
+    chain: list[str] = []
+    if crop_box is not None:
+        chain.append(_crop_filter(crop_box))
+    if resize_target is not None:
+        chain.append(_scale_filter(resize_target))
+    if not chain:
+        return []
+    return ["-vf", ",".join(chain)]

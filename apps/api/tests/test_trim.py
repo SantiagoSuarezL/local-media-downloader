@@ -123,7 +123,7 @@ def test_parse_intent_validates_trim_up_front() -> None:
 
 def test_intent_dto_shape_is_unchanged_by_trim() -> None:
     intent = parse_intent(_intent("mp4", "include"))
-    assert intent.processing.as_dict() == {"resize": None, "trim": "00:10-00:20"}
+    assert intent.processing.as_dict() == {"resize": None, "trim": "00:10-00:20", "crop": None}
 
 
 def test_trim_forces_transcode_even_when_copy_is_possible() -> None:

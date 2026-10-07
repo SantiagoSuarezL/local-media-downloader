@@ -8,11 +8,11 @@ Translates a validated :class:`OutputIntent` plus the resolved
    (ENGINEERING_PRINCIPLES #84);
 2. audio-only intent always maps to an audio extraction step;
 3. ``audio="remove"`` maps to a video-only stream-copy when compatible;
-4. processing: trim and resize are planned as an accurate re-encode (stream
-   copy can neither cut on non-keyframes nor change resolution); resize is
-   rejected for media presets, audio-only output and live sources — an intent
-   must never silently degrade (PRD: fake features are worse than rejected
-   intents);
+4. processing: trim, crop and resize are planned as an accurate re-encode (stream
+   copy can neither cut on non-keyframes nor change the pixel geometry); they
+   are rejected for media presets, audio-only output and live sources — an
+   intent must never silently degrade (PRD: fake features are worse than
+   rejected intents);
 5. the plan contains tool steps and static detail only — user input can
    never inject command arguments (TECHNICAL_SPEC §258).
 """
@@ -20,7 +20,14 @@ Translates a validated :class:`OutputIntent` plus the resolved
 from __future__ import annotations
 
 from ..domain.errors import ErrorCode, ExtractionError
-from ..domain.intent import AudioChoice, MediaChoice, OutputIntent, parse_resize, parse_trim
+from ..domain.intent import (
+    AudioChoice,
+    MediaChoice,
+    OutputIntent,
+    parse_crop,
+    parse_resize,
+    parse_trim,
+)
 from ..domain.media import MediaInfo
 from ..domain.plan import ExecutionPlan, PlanStep
 
@@ -52,6 +59,7 @@ class Planner:
         source_container = _primary_container(info)
         trim = self._trim_detail(intent, info)
         resize = self._resize_detail(intent, info)
+        crop = self._crop_detail(intent, info)
 
         if intent.container in {"gif", "webp", "sticker", "mobile"}:
             if trim:
@@ -98,9 +106,9 @@ class Planner:
             return self._audio_plan(intent, trim)
 
         if intent.audio is AudioChoice.REMOVE:
-            return self._video_only_plan(intent, source_container, trim, resize)
+            return self._video_only_plan(intent, source_container, trim, resize, crop)
 
-        return self._full_video_plan(intent, source_container, trim, resize)
+        return self._full_video_plan(intent, source_container, trim, resize, crop)
 
     def _trim_detail(self, intent: OutputIntent, info: MediaInfo) -> dict[str, str]:
         if intent.processing.trim is None:
@@ -148,6 +156,34 @@ class Planner:
         resize = parse_resize(intent.processing.resize)
         return {"resize": resize}
 
+    def _crop_detail(self, intent: OutputIntent, info: MediaInfo) -> dict[str, str]:
+        if intent.processing.crop is None:
+            return {}
+        if info.is_live:
+            raise ExtractionError(
+                ErrorCode.UNSUPPORTED_INTENT,
+                "Crop is not supported for live sources.",
+                retryable=False,
+            )
+        if intent.container in {"gif", "webp", "sticker", "mobile"}:
+            raise ExtractionError(
+                ErrorCode.UNSUPPORTED_INTENT,
+                "Crop is not supported together with media presets.",
+                retryable=False,
+            )
+        if (
+            intent.container in {"mp3", "m4a", "opus", "wav"}
+            or intent.media is MediaChoice.AUDIO
+            or intent.audio is AudioChoice.ONLY
+        ):
+            raise ExtractionError(
+                ErrorCode.UNSUPPORTED_INTENT,
+                "Crop is not supported for audio-only output.",
+                retryable=False,
+            )
+        crop = parse_crop(intent.processing.crop)
+        return {"crop": crop}
+
     def _selector(self, intent: OutputIntent, *, audio_only: bool) -> str:
         if audio_only:
             return "worstaudio" if intent.quality.value == "worst" else "bestaudio"
@@ -176,10 +212,12 @@ class Planner:
         source_container: str | None,
         trim: dict[str, str],
         resize: dict[str, str],
+        crop: dict[str, str],
     ) -> ExecutionPlan:
         compatible = (
             not trim
             and not resize
+            and not crop
             and source_container is not None
             and source_container in _CONTAINER_ACCEPTS.get(intent.container, frozenset())
         )
@@ -212,6 +250,7 @@ class Planner:
                     "container": intent.container,
                     **trim,
                     **resize,
+                    **crop,
                 },
             ),
             PlanStep("VALIDATE", "ffprobe", {}),
@@ -225,10 +264,12 @@ class Planner:
         source_container: str | None,
         trim: dict[str, str],
         resize: dict[str, str],
+        crop: dict[str, str],
     ) -> ExecutionPlan:
         compatible = (
             not trim
             and not resize
+            and not crop
             and source_container is not None
             and source_container in _CONTAINER_ACCEPTS.get(intent.container, frozenset())
         )
@@ -261,6 +302,7 @@ class Planner:
                     "container": intent.container,
                     **trim,
                     **resize,
+                    **crop,
                 },
             ),
             PlanStep("VALIDATE", "ffprobe", {}),

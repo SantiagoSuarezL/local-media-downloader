@@ -16,7 +16,7 @@ describe('PRESETS', () => {
       expect(Object.keys(preset.intent).sort()).toEqual(
         ['audio', 'container', 'media', 'processing', 'quality', 'video_codec'].sort(),
       )
-      expect(Object.keys(preset.intent.processing).sort()).toEqual(['resize', 'trim'])
+      expect(Object.keys(preset.intent.processing).sort()).toEqual(['crop', 'resize', 'trim'])
     }
   })
 
@@ -85,7 +85,7 @@ describe('baseIntent', () => {
       container: 'mp4',
       audio: 'include',
       video_codec: 'source',
-      processing: { resize: null, trim: null },
+      processing: { resize: null, trim: null, crop: null },
     })
   })
 
@@ -93,6 +93,6 @@ describe('baseIntent', () => {
     const intent = baseIntent({ media: 'audio', container: 'm4a', audio: 'only' })
     expect(intent.media).toBe('audio')
     expect(intent.quality).toBe('best')
-    expect(intent.processing).toEqual({ resize: null, trim: null })
+    expect(intent.processing).toEqual({ resize: null, trim: null, crop: null })
   })
 })
