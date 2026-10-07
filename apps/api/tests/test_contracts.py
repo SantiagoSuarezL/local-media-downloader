@@ -229,6 +229,18 @@ def test_create_job_contract(client: TestClient) -> None:
     assert set(response.json()) == JOB_KEYS
 
 
+@pytest.mark.parametrize("container", ["gif", "webp", "sticker", "mobile"])
+def test_preset_job_contract(client: TestClient, container: str) -> None:
+    intent = {
+        **INTENT,
+        "container": container,
+        "audio": "include" if container == "mobile" else "remove",
+    }
+    response = client.post("/api/v1/jobs", json={"url": URL, "intent": intent})
+    assert response.status_code == 201
+    assert set(response.json()) == JOB_KEYS
+
+
 def test_duplicate_job_contract(client: TestClient) -> None:
     payload = {"url": URL, "intent": INTENT}
     first = client.post("/api/v1/jobs", json=payload)

@@ -17,7 +17,7 @@ from .errors import ErrorCode, ExtractionError
 _MEDIA = ("video", "audio")
 _QUALITY = ("best", "worst")
 _AUDIO = ("include", "remove", "only")
-_VIDEO_CONTAINERS = ("mp4", "mkv", "webm")
+_VIDEO_CONTAINERS = ("mp4", "mkv", "webm", "gif", "webp", "sticker", "mobile")
 _AUDIO_CONTAINERS = ("mp3", "m4a", "opus", "wav")
 _CONTAINERS = _VIDEO_CONTAINERS + _AUDIO_CONTAINERS
 
@@ -119,6 +119,12 @@ def parse_intent(payload: Any) -> OutputIntent:
         raise _bad(f"container {container!r} is not a video container")
     if audio is AudioChoice.ONLY and media is MediaChoice.VIDEO:
         raise _bad('audio="only" requires media="audio"')
+    if container in {"gif", "webp", "sticker"} and audio is not AudioChoice.REMOVE:
+        raise _bad(f"{container} requires audio=remove")
+    if container == "mobile" and audio is not AudioChoice.INCLUDE:
+        raise _bad("mobile requires audio=include")
+    if media is MediaChoice.AUDIO and audio is not AudioChoice.ONLY:
+        raise _bad('media="audio" requires audio="only"')
     return OutputIntent(
         media=media,
         quality=QualityChoice(quality_raw),

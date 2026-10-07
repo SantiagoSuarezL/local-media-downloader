@@ -75,6 +75,7 @@
 
   <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
     <select
+      aria-label="Output preset"
       class="rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-neutral-100"
       bind:value={selectedPreset}
     >
@@ -99,6 +100,13 @@
       {submitting ? 'Queueing…' : `Queue ${urls.length} URL${urls.length === 1 ? '' : 's'}`}
     </button>
   </div>
+
+  {#if selectedPreset === 'sticker'}
+    <p class="text-xs text-neutral-400">
+      Creates a 512×512 animated WebP (up to 3 seconds and 500 KB). Import into WhatsApp is not
+      guaranteed.
+    </p>
+  {/if}
 
   {#if error}
     <p class="rounded-lg border border-red-900 bg-red-950/40 px-3 py-2 text-sm text-red-300">

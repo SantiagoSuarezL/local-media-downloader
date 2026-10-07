@@ -41,7 +41,19 @@ class MediaTool(Protocol):
 
     def remux(self, source: Path, destination: Path, *, timeout: float = ...) -> Path: ...
 
-    def transcode(self, source: Path, destination: Path, *, timeout: float = ...) -> Path: ...
+    def transcode(
+        self,
+        source: Path,
+        destination: Path,
+        *,
+        video_codec: str = ...,
+        audio_codec: str = ...,
+        timeout: float = ...,
+    ) -> Path: ...
+
+    def convert_preset(
+        self, source: Path, destination: Path, *, preset: str, timeout: float = ...
+    ) -> Path: ...
 
     def extract_audio(
         self,
@@ -212,7 +224,16 @@ class DefaultExecutor:
         if kind == "REMUX":
             self._processor.remux(source, target)
         elif kind == "TRANSCODE":
-            self._processor.transcode(source, target)
+            self._processor.transcode(
+                source,
+                target,
+                video_codec=detail.get("video_codec", "libx264"),
+                audio_codec=detail.get(
+                    "audio_codec", "none" if detail.get("audio") == "none" else "aac"
+                ),
+            )
+        elif kind == "CONVERT_PRESET":
+            self._processor.convert_preset(source, target, preset=detail["preset"])
         elif kind == "EXTRACT_AUDIO":
             self._processor.extract_audio(source, target, codec=detail.get("codec", "libmp3lame"))
         elif kind == "VIDEO_ONLY":
@@ -249,14 +270,14 @@ def _plan_detail(plan: ExecutionPlan, kind: str, key: str) -> str | None:
 
 def _first_operation(plan: ExecutionPlan) -> tuple[str, str, dict[str, str]] | None:
     for step in plan.steps:
-        if step.kind in {"REMUX", "TRANSCODE", "EXTRACT_AUDIO", "VIDEO_ONLY"}:
+        if step.kind in {"REMUX", "TRANSCODE", "EXTRACT_AUDIO", "VIDEO_ONLY", "CONVERT_PRESET"}:
             return step.kind, step.tool, dict(step.detail)
     return None
 
 
 def _final_container(plan: ExecutionPlan) -> str | None:
     for step in plan.steps:
-        if step.kind in {"REMUX", "TRANSCODE", "EXTRACT_AUDIO", "VIDEO_ONLY"}:
+        if step.kind in {"REMUX", "TRANSCODE", "EXTRACT_AUDIO", "VIDEO_ONLY", "CONVERT_PRESET"}:
             container = step.detail.get("container")
             if container:
                 return container

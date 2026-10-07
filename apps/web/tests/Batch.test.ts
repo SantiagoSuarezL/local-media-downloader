@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { baseIntent } from '../src/lib/presets'
+import { PRESETS, baseIntent, findPreset } from '../src/lib/presets'
 import Batch from '../src/screens/Batch.svelte'
 import { api } from '../src/lib/api'
 
@@ -25,6 +25,22 @@ async function paste(...lines: string[]): Promise<void> {
 }
 
 describe('Batch screen', () => {
+  it('renders every preset and queues the selected conversion intent', async () => {
+    render(Batch, { props: {} })
+    const select = screen.getByRole('combobox', { name: 'Output preset' })
+    expect(Array.from(select.querySelectorAll('option'), (option) => option.value)).toEqual(
+      PRESETS.map((preset) => preset.id),
+    )
+    await fireEvent.change(select, { target: { value: 'sticker' } })
+    expect(screen.getByText(/Import into WhatsApp is not guaranteed/)).toBeTruthy()
+    createBatch.mockResolvedValue({ results: [] })
+    await paste('https://example.com/1')
+    await fireEvent.click(screen.getByText('Queue 1 URL'))
+    expect(createBatch).toHaveBeenCalledWith({
+      items: [{ url: 'https://example.com/1', intent: findPreset('sticker').intent, priority: 0 }],
+    })
+  })
+
   it('counts pasted urls on the queue button', async () => {
     render(Batch, { props: {} })
     expect(screen.getByText('Queue 0 URLs')).toBeTruthy()

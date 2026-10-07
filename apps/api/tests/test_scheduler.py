@@ -88,7 +88,20 @@ class StubProcessor:
     def remux(self, source: Path, destination: Path, *, timeout: float = 0.0) -> Path:
         return self._write(destination)
 
-    def transcode(self, source: Path, destination: Path, *, timeout: float = 0.0) -> Path:
+    def transcode(
+        self,
+        source: Path,
+        destination: Path,
+        *,
+        video_codec: str = "libx264",
+        audio_codec: str = "aac",
+        timeout: float = 0.0,
+    ) -> Path:
+        return self._write(destination)
+
+    def convert_preset(
+        self, source: Path, destination: Path, *, preset: str, timeout: float = 0.0
+    ) -> Path:
         return self._write(destination)
 
     def extract_audio(
@@ -218,6 +231,38 @@ def test_ten_jobs_never_exceed_two_downloads_one_encoder(real_budget_env):
     asyncio.run(main())
     assert downloader.max_concurrent <= 2
     assert processor.max_concurrent <= 1
+
+
+def test_executor_dispatches_preset_and_uses_real_extension(real_budget_env):
+    import asyncio
+
+    from local_media_downloader.domain.plan import ExecutionPlan, PlanStep
+    from local_media_downloader.services.executor import _final_container, _first_operation
+
+    conn, bus, downloader, processor, _scheduler, _tmp_path = real_budget_env
+    from local_media_downloader.services.executor import DefaultExecutor
+
+    executor = DefaultExecutor(
+        conn,
+        extractor=downloader,
+        processor=processor,
+        data_dir=_tmp_path,
+        bus=bus,
+        download_sem=asyncio.Semaphore(1),
+        encode_sem=asyncio.Semaphore(1),
+    )
+    plan = ExecutionPlan(
+        steps=(PlanStep("CONVERT_PRESET", "ffmpeg", {"preset": "sticker", "container": "webp"}),),
+        strategy="transcode",
+    )
+    operation = _first_operation(plan)
+    assert operation is not None
+    assert _final_container(plan) == "webp"
+    source = _tmp_path / "source.mp4"
+    source.write_bytes(b"fake")
+    target = _tmp_path / "output.webp"
+    executor._process(operation, source, target, asyncio.Event())
+    assert target.read_bytes() == b"out"
 
 
 def test_progress_model_is_normalized_and_observable(scheduler_env):

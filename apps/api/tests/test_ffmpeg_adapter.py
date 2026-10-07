@@ -110,6 +110,28 @@ def test_remux_copies_streams(
     assert probe.has_audio is True
 
 
+@pytest.mark.parametrize(
+    ("preset", "extension"),
+    [("gif", "gif"), ("webp", "webp"), ("sticker", "webp"), ("mobile", "mp4")],
+)
+def test_preset_transforms_real_media(
+    processor: FFmpegProcessor, source_clip: Path, tmp_path: Path, preset: str, extension: str
+) -> None:
+    out = tmp_path / f"{preset}.{extension}"
+    processor.convert_preset(source_clip, out, preset=preset)
+    probe = processor.validate(out)
+    assert probe.has_video
+    if preset != "mobile":
+        assert not probe.has_audio
+    if preset == "sticker":
+        assert probe.video_stream is not None
+        assert (probe.video_stream.width, probe.video_stream.height) == (512, 512)
+        assert out.stat().st_size <= 500_000
+    if preset == "mobile":
+        assert probe.video_stream is not None
+        assert probe.video_stream.height is not None and probe.video_stream.height <= 720
+
+
 def test_missing_source_is_classified(processor: FFmpegProcessor, tmp_path: Path) -> None:
     with pytest.raises(ExtractionError) as exc:
         processor.transcode(tmp_path / "nope.mp4", tmp_path / "out.mp4")

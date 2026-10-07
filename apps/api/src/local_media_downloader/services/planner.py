@@ -55,6 +55,37 @@ class Planner:
 
         source_container = _primary_container(info)
 
+        if intent.container in {"gif", "webp", "sticker", "mobile"}:
+            if not any(fmt.has_video for fmt in info.formats):
+                raise ExtractionError(
+                    ErrorCode.UNSUPPORTED_INTENT,
+                    "This preset requires a video source.",
+                    retryable=False,
+                )
+            container = (
+                "mp4"
+                if intent.container == "mobile"
+                else ("webp" if intent.container == "sticker" else intent.container)
+            )
+            return ExecutionPlan(
+                steps=(
+                    PlanStep(
+                        "SELECT_FORMAT",
+                        "yt_dlp",
+                        {"selector": self._selector(intent, audio_only=False)},
+                    ),
+                    PlanStep("DOWNLOAD", "yt_dlp", {}),
+                    PlanStep(
+                        "CONVERT_PRESET",
+                        "ffmpeg",
+                        {"preset": intent.container, "container": container},
+                    ),
+                    PlanStep("VALIDATE", "ffprobe", {}),
+                    PlanStep("FINALIZE", "internal", {}),
+                ),
+                strategy="transcode",
+            )
+
         if intent.media is MediaChoice.AUDIO:
             return self._audio_plan(intent)
 
@@ -112,7 +143,11 @@ class Planner:
             PlanStep(
                 "TRANSCODE",
                 "ffmpeg",
-                {"video_codec": "libx264", "audio": "none", "container": intent.container},
+                {
+                    "video_codec": "libvpx-vp9" if intent.container == "webm" else "libx264",
+                    "audio": "none",
+                    "container": intent.container,
+                },
             ),
             PlanStep("VALIDATE", "ffprobe", {}),
             PlanStep("FINALIZE", "internal", {}),
@@ -146,7 +181,11 @@ class Planner:
             PlanStep(
                 "TRANSCODE",
                 "ffmpeg",
-                {"video_codec": "libx264", "audio_codec": "aac", "container": intent.container},
+                {
+                    "video_codec": "libvpx-vp9" if intent.container == "webm" else "libx264",
+                    "audio_codec": "libopus" if intent.container == "webm" else "aac",
+                    "container": intent.container,
+                },
             ),
             PlanStep("VALIDATE", "ffprobe", {}),
             PlanStep("FINALIZE", "internal", {}),

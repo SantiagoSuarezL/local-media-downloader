@@ -193,6 +193,49 @@ def test_rejects_resize_until_phase_14() -> None:
     assert exc.value.code is ErrorCode.UNSUPPORTED_INTENT
 
 
+@pytest.mark.parametrize(
+    ("container", "target"),
+    [("gif", "gif"), ("webp", "webp"), ("sticker", "webp"), ("mobile", "mp4")],
+)
+def test_media_preset_has_closed_conversion_plan(container: str, target: str) -> None:
+    plan = _plan(
+        {
+            "media": "video",
+            "quality": "best",
+            "container": container,
+            "audio": "include" if container == "mobile" else "remove",
+            "video_codec": "source",
+        },
+        _mp4_source(),
+    )
+    assert plan.strategy == "transcode"
+    step = next(s for s in plan.steps if s.kind == "CONVERT_PRESET")
+    assert step.detail == {"preset": container, "container": target}
+
+
+@pytest.mark.parametrize("container", ["gif", "webp", "sticker", "mobile"])
+def test_media_presets_reject_incompatible_audio(container: str) -> None:
+    with pytest.raises(ExtractionError) as exc:
+        parse_intent(
+            {
+                "media": "video",
+                "quality": "best",
+                "container": container,
+                "audio": "remove" if container == "mobile" else "include",
+            }
+        )
+    assert exc.value.code is ErrorCode.UNSUPPORTED_INTENT
+
+
+def test_media_presets_require_video() -> None:
+    with pytest.raises(ExtractionError) as exc:
+        _plan(
+            {"media": "video", "quality": "best", "container": "gif", "audio": "remove"},
+            _info(_fmt("a", FormatKind.AUDIO, "m4a", "m4a")),
+        )
+    assert exc.value.code is ErrorCode.UNSUPPORTED_INTENT
+
+
 def test_plan_is_serializable_and_has_no_user_args() -> None:
     plan = _plan(
         {

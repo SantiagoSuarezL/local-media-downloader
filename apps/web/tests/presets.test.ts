@@ -40,6 +40,25 @@ describe('PRESETS', () => {
     }
   })
 
+  it('exposes every phase 13 preset with a supported output target', () => {
+    const expected: Record<string, [string, string, string]> = {
+      video: ['video', 'mp4', 'include'],
+      audio: ['audio', 'm4a', 'only'],
+      mp3: ['audio', 'mp3', 'only'],
+      mp4: ['video', 'mp4', 'include'],
+      webm: ['video', 'webm', 'include'],
+      gif: ['video', 'gif', 'remove'],
+      webp: ['video', 'webp', 'remove'],
+      'no-audio': ['video', 'mp4', 'remove'],
+      mobile: ['video', 'mobile', 'include'],
+      sticker: ['video', 'sticker', 'remove'],
+    }
+    for (const [id, [media, container, audio]] of Object.entries(expected)) {
+      expect(findPreset(id).id).toBe(id)
+      expect(findPreset(id).intent).toMatchObject({ media, container, audio })
+    }
+  })
+
   it('keeps the mp3 preset honest about what it produces', () => {
     const mp3 = findPreset('mp3')
     expect(mp3.intent.media).toBe('audio')

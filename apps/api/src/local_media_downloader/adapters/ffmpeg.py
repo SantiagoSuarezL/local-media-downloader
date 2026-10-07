@@ -74,7 +74,16 @@ class FFmpegProcessor:
         return self._run(
             source,
             destination,
-            ["-c:v", video_codec, "-preset", "veryfast", "-c:a", audio_codec],
+            [
+                "-c:v",
+                video_codec,
+                *(
+                    ["-deadline", "good", "-cpu-used", "4"]
+                    if video_codec == "libvpx-vp9"
+                    else ["-preset", "veryfast"]
+                ),
+                *(["-an"] if audio_codec == "none" else ["-c:a", audio_codec]),
+            ],
             timeout=timeout,
         )
 
@@ -105,6 +114,75 @@ class FFmpegProcessor:
             ["-map", "0:v:0", "-c:v", "copy", "-an"],
             timeout=timeout,
         )
+
+    def convert_preset(
+        self, source: Path, destination: Path, *, preset: str, timeout: float = DEFAULT_TIMEOUT
+    ) -> Path:
+        def scale(width: int, height: int) -> str:
+            return (
+                f"scale='min({width},iw)':'min({height},ih)':force_original_aspect_ratio=decrease"
+            )
+
+        profiles = {
+            "gif": ["-vf", f"fps=10,{scale(480, 480)}", "-an", "-loop", "0"],
+            "webp": [
+                "-vf",
+                f"fps=12,{scale(512, 512)}",
+                "-an",
+                "-c:v",
+                "libwebp_anim",
+                "-loop",
+                "0",
+            ],
+            "sticker": [
+                "-t",
+                "3",
+                "-vf",
+                f"fps=12,{scale(512, 512)},"
+                "pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000,format=yuva420p",
+                "-an",
+                "-c:v",
+                "libwebp_anim",
+                "-loop",
+                "0",
+                "-quality",
+                "70",
+            ],
+            "mobile": [
+                "-vf",
+                f"{scale(1280, 720)}:force_divisible_by=2",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+                "-movflags",
+                "+faststart",
+            ],
+        }
+        if preset not in profiles:
+            raise ExtractionError(
+                ErrorCode.UNSUPPORTED_INTENT, "Unknown media preset.", retryable=False
+            )
+        result = self._run(source, destination, profiles[preset], timeout=timeout)
+        probe = self.validate(result)
+        video = probe.video_stream
+        if video is None or (preset != "mobile" and probe.has_audio):
+            result.unlink(missing_ok=True)
+            raise ExtractionError(
+                ErrorCode.VALIDATION_FAILED, "Preset output streams are invalid.", retryable=False
+            )
+        if preset == "sticker" and (
+            video.width != 512 or video.height != 512 or result.stat().st_size > 500_000
+        ):
+            result.unlink(missing_ok=True)
+            raise ExtractionError(
+                ErrorCode.VALIDATION_FAILED, "Sticker exceeds 512x512 or 500 KB.", retryable=False
+            )
+        return result
 
     def validate(self, path: Path, *, timeout: float = 30.0) -> MediaProbe:
         """Re-inspect a produced file and assert it is a plausible media file."""
