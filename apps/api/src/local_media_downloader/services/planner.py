@@ -27,6 +27,8 @@ from ..domain.intent import (
     parse_crop,
     parse_resize,
     parse_trim,
+    parse_video_bitrate,
+    parse_video_framerate,
 )
 from ..domain.media import MediaInfo
 from ..domain.plan import ExecutionPlan, PlanStep
@@ -46,6 +48,20 @@ _AUDIO_CODEC_FOR_CONTAINER = {
     "wav": "pcm_s16le",
 }
 
+# Intent codec choice → ffmpeg encoder, and which containers may hold it.
+# Unknown pairs are rejected (UNSUPPORTED_INTENT) instead of letting ffmpeg
+# produce a stream the container cannot carry.
+_VIDEO_ENCODER_FOR_CODEC = {
+    "h264": "libx264",
+    "vp9": "libvpx-vp9",
+    "av1": "libsvtav1",
+}
+_CONTAINERS_FOR_CODEC = {
+    "h264": frozenset({"mp4", "mkv"}),
+    "vp9": frozenset({"webm", "mkv"}),
+    "av1": frozenset({"mp4", "mkv", "webm"}),
+}
+
 
 class Planner:
     def plan(self, intent: OutputIntent, info: MediaInfo) -> ExecutionPlan:
@@ -60,12 +76,19 @@ class Planner:
         trim = self._trim_detail(intent, info)
         resize = self._resize_detail(intent, info)
         crop = self._crop_detail(intent, info)
+        encode = self._encode_detail(intent, info)
 
         if intent.container in {"gif", "webp", "sticker", "mobile"}:
             if trim:
                 raise ExtractionError(
                     ErrorCode.UNSUPPORTED_INTENT,
                     "Trim is not supported together with media presets.",
+                    retryable=False,
+                )
+            if encode:
+                raise ExtractionError(
+                    ErrorCode.UNSUPPORTED_INTENT,
+                    "Video encode options are not supported together with media presets.",
                     retryable=False,
                 )
             if not any(fmt.has_video for fmt in info.formats):
@@ -106,9 +129,9 @@ class Planner:
             return self._audio_plan(intent, trim)
 
         if intent.audio is AudioChoice.REMOVE:
-            return self._video_only_plan(intent, source_container, trim, resize, crop)
+            return self._video_only_plan(intent, source_container, trim, resize, crop, encode)
 
-        return self._full_video_plan(intent, source_container, trim, resize, crop)
+        return self._full_video_plan(intent, source_container, trim, resize, crop, encode)
 
     def _trim_detail(self, intent: OutputIntent, info: MediaInfo) -> dict[str, str]:
         if intent.processing.trim is None:
@@ -184,6 +207,52 @@ class Planner:
         crop = parse_crop(intent.processing.crop)
         return {"crop": crop}
 
+    def _encode_detail(self, intent: OutputIntent, info: MediaInfo) -> dict[str, str]:
+        if (
+            intent.video_codec == "source"
+            and intent.video_bitrate is None
+            and intent.video_framerate is None
+        ):
+            return {}
+        if info.is_live:
+            raise ExtractionError(
+                ErrorCode.UNSUPPORTED_INTENT,
+                "Video encode options are not supported for live sources.",
+                retryable=False,
+            )
+        if intent.container in {"gif", "webp", "sticker", "mobile"}:
+            raise ExtractionError(
+                ErrorCode.UNSUPPORTED_INTENT,
+                "Video encode options are not supported together with media presets.",
+                retryable=False,
+            )
+        if intent.media is MediaChoice.AUDIO or intent.audio is AudioChoice.ONLY:
+            raise ExtractionError(
+                ErrorCode.UNSUPPORTED_INTENT,
+                "Video encode options are not supported for audio-only output.",
+                retryable=False,
+            )
+        if intent.container in {"mp3", "m4a", "opus", "wav"}:
+            raise ExtractionError(
+                ErrorCode.UNSUPPORTED_INTENT,
+                "Video encode options are not supported for audio-only output.",
+                retryable=False,
+            )
+        detail: dict[str, str] = {}
+        if intent.video_codec != "source":
+            if intent.container not in _CONTAINERS_FOR_CODEC[intent.video_codec]:
+                raise ExtractionError(
+                    ErrorCode.UNSUPPORTED_INTENT,
+                    f"Codec {intent.video_codec} cannot be stored in {intent.container}.",
+                    retryable=False,
+                )
+            detail["video_codec"] = _VIDEO_ENCODER_FOR_CODEC[intent.video_codec]
+        if intent.video_bitrate is not None:
+            detail["bitrate"] = parse_video_bitrate(intent.video_bitrate)
+        if intent.video_framerate is not None:
+            detail["framerate"] = parse_video_framerate(intent.video_framerate)
+        return detail
+
     def _selector(self, intent: OutputIntent, *, audio_only: bool) -> str:
         if audio_only:
             return "worstaudio" if intent.quality.value == "worst" else "bestaudio"
@@ -213,11 +282,13 @@ class Planner:
         trim: dict[str, str],
         resize: dict[str, str],
         crop: dict[str, str],
+        encode: dict[str, str],
     ) -> ExecutionPlan:
         compatible = (
             not trim
             and not resize
             and not crop
+            and not encode
             and source_container is not None
             and source_container in _CONTAINER_ACCEPTS.get(intent.container, frozenset())
         )
@@ -251,6 +322,7 @@ class Planner:
                     **trim,
                     **resize,
                     **crop,
+                    **encode,
                 },
             ),
             PlanStep("VALIDATE", "ffprobe", {}),
@@ -265,11 +337,13 @@ class Planner:
         trim: dict[str, str],
         resize: dict[str, str],
         crop: dict[str, str],
+        encode: dict[str, str],
     ) -> ExecutionPlan:
         compatible = (
             not trim
             and not resize
             and not crop
+            and not encode
             and source_container is not None
             and source_container in _CONTAINER_ACCEPTS.get(intent.container, frozenset())
         )
@@ -303,6 +377,7 @@ class Planner:
                     **trim,
                     **resize,
                     **crop,
+                    **encode,
                 },
             ),
             PlanStep("VALIDATE", "ffprobe", {}),

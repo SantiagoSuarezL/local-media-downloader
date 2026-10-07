@@ -68,6 +68,8 @@ class FFmpegProcessor:
         *,
         video_codec: str = "libx264",
         audio_codec: str = "aac",
+        video_bitrate: str | None = None,
+        video_framerate: str | None = None,
         timeout: float = DEFAULT_TIMEOUT,
     ) -> Path:
         """Re-encode video and audio into a self-contained file."""
@@ -75,13 +77,11 @@ class FFmpegProcessor:
             source,
             destination,
             [
+                *(["-vf", f"fps={video_framerate}"] if video_framerate is not None else []),
                 "-c:v",
                 video_codec,
-                *(
-                    ["-deadline", "good", "-cpu-used", "4"]
-                    if video_codec == "libvpx-vp9"
-                    else ["-preset", "veryfast"]
-                ),
+                *_cpu_args(video_codec),
+                *(["-b:v", video_bitrate] if video_bitrate is not None else []),
                 *(["-an"] if audio_codec == "none" else ["-c:a", audio_codec]),
             ],
             timeout=timeout,
@@ -98,6 +98,8 @@ class FFmpegProcessor:
         audio_codec: str = "aac",
         resize_target: str | None = None,
         crop_box: str | None = None,
+        video_bitrate: str | None = None,
+        video_framerate: str | None = None,
         timeout: float = DEFAULT_TIMEOUT,
     ) -> Path:
         """Re-encode only the ``[start, end)`` window (accurate cut, never stream copy).
@@ -113,14 +115,11 @@ class FFmpegProcessor:
             destination,
             [
                 *_trim_args(start, end),
-                *_video_filter_args(resize_target, crop_box),
+                *_video_filter_args(resize_target, crop_box, video_framerate),
                 "-c:v",
                 video_codec,
-                *(
-                    ["-deadline", "good", "-cpu-used", "4"]
-                    if video_codec == "libvpx-vp9"
-                    else ["-preset", "veryfast"]
-                ),
+                *_cpu_args(video_codec),
+                *(["-b:v", video_bitrate] if video_bitrate is not None else []),
                 *(["-an"] if audio_codec == "none" else ["-c:a", audio_codec]),
             ],
             timeout=timeout,
@@ -196,6 +195,8 @@ class FFmpegProcessor:
         target: str,
         video_codec: str = "libx264",
         audio_codec: str = "aac",
+        video_bitrate: str | None = None,
+        video_framerate: str | None = None,
         timeout: float = DEFAULT_TIMEOUT,
     ) -> Path:
         """Resize video to target height (``720p``) or bbox (``1280x720``).
@@ -209,14 +210,12 @@ class FFmpegProcessor:
             destination,
             [
                 "-vf",
-                _scale_filter(target),
+                _scale_filter(target)
+                + (f",fps={video_framerate}" if video_framerate is not None else ""),
                 "-c:v",
                 video_codec,
-                *(
-                    ["-deadline", "good", "-cpu-used", "4"]
-                    if video_codec == "libvpx-vp9"
-                    else ["-preset", "veryfast"]
-                ),
+                *_cpu_args(video_codec),
+                *(["-b:v", video_bitrate] if video_bitrate is not None else []),
                 *(["-an"] if audio_codec == "none" else ["-c:a", audio_codec]),
             ],
             timeout=timeout,
@@ -232,6 +231,8 @@ class FFmpegProcessor:
         resize_target: str | None = None,
         video_codec: str = "libx264",
         audio_codec: str = "aac",
+        video_bitrate: str | None = None,
+        video_framerate: str | None = None,
         timeout: float = DEFAULT_TIMEOUT,
     ) -> Path:
         """Cut out the exact rectangle ``box`` (``640x480`` / ``640x480+100+50``).
@@ -246,14 +247,11 @@ class FFmpegProcessor:
             source,
             destination,
             [
-                *_video_filter_args(resize_target, box),
+                *_video_filter_args(resize_target, box, video_framerate),
                 "-c:v",
                 video_codec,
-                *(
-                    ["-deadline", "good", "-cpu-used", "4"]
-                    if video_codec == "libvpx-vp9"
-                    else ["-preset", "veryfast"]
-                ),
+                *_cpu_args(video_codec),
+                *(["-b:v", video_bitrate] if video_bitrate is not None else []),
                 *(["-an"] if audio_codec == "none" else ["-c:a", audio_codec]),
             ],
             timeout=timeout,
@@ -525,6 +523,14 @@ def _trim_args(start: float, end: float) -> list[str]:
     return ["-ss", f"{start:.3f}", "-t", f"{end - start:.3f}"]
 
 
+def _cpu_args(video_codec: str) -> list[str]:
+    if video_codec == "libvpx-vp9":
+        return ["-deadline", "good", "-cpu-used", "4"]
+    if video_codec == "libsvtav1":
+        return ["-preset", "4"]
+    return ["-preset", "veryfast"]
+
+
 def _scale_filter(target: str) -> str:
     """Closed scale filter for a validated resize target."""
     if target.endswith("p"):
@@ -554,13 +560,17 @@ def _crop_size(box: str) -> tuple[int, int]:
         ) from None
 
 
-def _video_filter_args(resize_target: str | None, crop_box: str | None) -> list[str]:
+def _video_filter_args(
+    resize_target: str | None, crop_box: str | None, framerate: str | None = None
+) -> list[str]:
     """Build the single-pass geometry filter chain (crop before scale)."""
     chain: list[str] = []
     if crop_box is not None:
         chain.append(_crop_filter(crop_box))
     if resize_target is not None:
         chain.append(_scale_filter(resize_target))
+    if framerate is not None:
+        chain.append(f"fps={framerate}")
     if not chain:
         return []
     return ["-vf", ",".join(chain)]

@@ -14,11 +14,12 @@ a downloading job never holds an encoder.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import shutil
 import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Protocol, TypedDict, cast, runtime_checkable
 
 from .. import jobs
 from ..adapters.ffmpeg import FFmpegProcessor
@@ -34,6 +35,64 @@ from .events import EventBus, StreamEvent
 
 class JobCancelled(Exception):
     """Raised when the cooperative cancel event fires between stages."""
+
+
+class _EncodeKwargs(TypedDict, total=False):
+    video_bitrate: str | None
+    video_framerate: str | None
+
+
+def _encode_kwargs(detail: dict[str, str]) -> _EncodeKwargs:
+    """Translate encode options from the plan into adapter kwargs.
+
+    Only present keys are forwarded, so processors that predate these
+    options (e.g. scheduler stubs) keep working when no encode options
+    were requested.
+    """
+    kwargs: _EncodeKwargs = {}
+    if detail.get("bitrate") is not None:
+        kwargs["video_bitrate"] = detail["bitrate"]
+    if detail.get("framerate") is not None:
+        kwargs["video_framerate"] = detail["framerate"]
+    return kwargs
+
+
+def _supports_encode_options(processor: MediaTool) -> bool:
+    """Prove the injected processor's ``transcode`` accepts the encode keywords.
+
+    A ``runtime_checkable`` isinstance would only prove that a ``transcode``
+    method exists — every ``MediaTool`` has one, Phase 4 stubs included, so
+    the presence check cannot tell an extended processor from a legacy one.
+    The capability lives in the keyword parameters, so those are inspected.
+    """
+    try:
+        parameters = inspect.signature(processor.transcode).parameters
+    except (TypeError, ValueError):  # pragma: no cover — callables without signatures
+        return False
+    return "video_bitrate" in parameters and "video_framerate" in parameters
+
+
+class VideoEncodeOptionsTool(Protocol):
+    """Optional capability: bitrate/framerate control (checked, never assumed).
+
+    Deliberately not ``runtime_checkable``: it re-declares ``transcode``, a
+    name every ``MediaTool`` already has, so a presence-based isinstance
+    would match legacy processors too and prove nothing. The executor
+    verifies the capability from the actual signature
+    (``_supports_encode_options``) and only then calls through this type.
+    """
+
+    def transcode(
+        self,
+        source: Path,
+        destination: Path,
+        *,
+        video_codec: str = ...,
+        audio_codec: str = ...,
+        video_bitrate: str | None = ...,
+        video_framerate: str | None = ...,
+        timeout: float = ...,
+    ) -> Path: ...
 
 
 class MediaTool(Protocol):
@@ -85,6 +144,8 @@ class TrimTool(Protocol):
         audio_codec: str = ...,
         resize_target: str | None = ...,
         crop_box: str | None = ...,
+        video_bitrate: str | None = ...,
+        video_framerate: str | None = ...,
         timeout: float = ...,
     ) -> Path: ...
 
@@ -113,6 +174,8 @@ class ResizeTool(Protocol):
         target: str,
         video_codec: str = ...,
         audio_codec: str = ...,
+        video_bitrate: str | None = ...,
+        video_framerate: str | None = ...,
         timeout: float = ...,
     ) -> Path: ...
 
@@ -130,6 +193,8 @@ class CropTool(Protocol):
         resize_target: str | None = ...,
         video_codec: str = ...,
         audio_codec: str = ...,
+        video_bitrate: str | None = ...,
+        video_framerate: str | None = ...,
         timeout: float = ...,
     ) -> Path: ...
 
@@ -294,13 +359,21 @@ class DefaultExecutor:
         if kind == "REMUX":
             self._processor.remux(source, target)
         elif kind == "TRANSCODE":
-            self._processor.transcode(
+            encode_kwargs = _encode_kwargs(detail)
+            if encode_kwargs and not _supports_encode_options(self._processor):
+                raise ExtractionError(
+                    ErrorCode.UNSUPPORTED_INTENT,
+                    "The media processor does not support encode options.",
+                    retryable=False,
+                )
+            cast(VideoEncodeOptionsTool, self._processor).transcode(
                 source,
                 target,
                 video_codec=detail.get("video_codec", "libx264"),
                 audio_codec=detail.get(
                     "audio_codec", "none" if detail.get("audio") == "none" else "aac"
                 ),
+                **encode_kwargs,
             )
         elif kind == "CONVERT_PRESET":
             self._processor.convert_preset(source, target, preset=detail["preset"])
@@ -351,6 +424,7 @@ class DefaultExecutor:
                 ),
                 resize_target=resize_target,
                 crop_box=crop_box,
+                **_encode_kwargs(detail),
             )
         else:
             if "resize" in detail or "crop" in detail:
@@ -407,6 +481,7 @@ class DefaultExecutor:
                 "audio_codec", "none" if detail.get("audio") == "none" else "aac"
             ),
             resize_target=resize_target,
+            **_encode_kwargs(detail),
         )
 
     def _process_cropped_and_resized(
@@ -428,6 +503,7 @@ class DefaultExecutor:
                 "audio_codec", "none" if detail.get("audio") == "none" else "aac"
             ),
             resize_target=resize_target,
+            **_encode_kwargs(detail),
         )
 
     def _process_resized(
@@ -448,6 +524,7 @@ class DefaultExecutor:
             audio_codec=detail.get(
                 "audio_codec", "none" if detail.get("audio") == "none" else "aac"
             ),
+            **_encode_kwargs(detail),
         )
 
     def _publish_state(self, job_id: str, state: JobState, *, stage: str) -> None:

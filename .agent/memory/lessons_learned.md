@@ -9,6 +9,9 @@
 
 ## Índice de reglas archivadas
 
+- 10.1 [API / errores]: todo ErrorCode tiene estado HTTP — ver `lessons_learned_archive.md`.
+- 10.2 [Tests / e2e]: probar que el puerto es tuyo antes de interpretar respuestas — ver `lessons_learned_archive.md`.
+- 10.3 [Tooling / pnpm]: los settings de build scripts se renombran entre versiones mayores — ver `lessons_learned_archive.md`.
 - 9.1 [Extensión / permisos]: host_permissions MV3 solo loopback — ver `lessons_learned_archive.md`.
 - 1.1 [Tooling / uv]: workspace members — ver `lessons_learned_archive.md`.
 - 1.2 [Git / reproducibilidad]: lockfiles se versionan — ver `lessons_learned_archive.md`.
@@ -23,35 +26,15 @@
 
 ## Reglas activas
 
-### Regla de Oro 10.1 [API / errores]: todo ErrorCode del dominio tiene estado HTTP, o el 500 miente
+### Regla de Oro 14.1 [Python / Protocolos]: un protocolo runtime_checkable que redeclara un método existente no detecta nada
 
-**Error:** `error_response()` tenía un mapa de `ErrorCode` → status; `UNSUPPORTED_INTENT`, `VALIDATION_FAILED` y el nuevo `BLOCKED_SOURCE` no estaban, así que caían al default 500. Se vio en Fase 10: un `POST /api/v1/jobs` con intent inválido devolvía 500 "internal error" cuando el problema era del usuario.
+**Error:** el slice encode-options de Fase 14 definió `VideoEncodeOptionsTool` — protocolo `runtime_checkable` cuyo único miembro es `transcode`, nombre que `MediaTool` ya declara. Pyright falló dos veces: "Class overlaps ... unsafely and could produce a match at runtime" sobre el `isinstance`, y el unpack `**_EncodeKwargs` no matcheaba parámetros porque en la intersección `MediaTool & VideoEncodeOptionsTool` la llamada se resuelve contra la firma de `MediaTool`.
 
-**Root Cause:** el mapa se.armó por Taxonomía (Fase 3) y se fue llenando por symptom (Fase 4/5). Cada código nuevo parecía opcional, y el default 500 silenciaba el hueco: nada fallaba en los tests porque los tests existentes nunca ejercitaban esos códigos por HTTP.
+**Root Cause:** `isinstance` contra un protocolo `runtime_checkable` sólo verifica *presencia* de miembros, jamás firmas. Como todo `MediaTool` tiene `transcode` (los stubs de la Fase 4 incluidos), el guardián daba `True` para procesadores que rechazarían los kwargs con `TypeError` en runtime — pyright señalaba un bug latente, no ruido de tipeo. `TrimTool`/`ResizeTool`/`CropTool` funcionan porque sus nombres (`transcode_trimmed`, `resize`, `crop`) no existen en `MediaTool`: ahí presencia sí prueba capacidad.
 
-**Solución:** los tres códigos se agregaron al mapa (400/422) y hay un test que itera `UNSUPPORTED_INTENT`, `VALIDATION_FAILED` y `BLOCKED_SOURCE` exigiendo 4xx. `BLOCKED_SOURCE` es nuevo en Fase 10 (guarda SSRF).
+**Solución:** la capacidad se verifica desde la firma real (`_supports_encode_options` con `inspect.signature(processor.transcode).parameters`) y la llamada se hace vía `cast(VideoEncodeOptionsTool, ...)`; el protocolo dejó de ser `runtime_checkable` y su docstring documenta por qué.
 
-**Regla de Oro:** *Al agregar un `ErrorCode`, agregalo también a `_STATUS_BY_CODE` en el mismo commit, y mantené un test que exija 4xx para todo error causado por el usuario: el default 500 convierte un error del cliente en "internal error".*
-
-### Regla de Oro 10.2 [Tests / e2e]: un smoke test contra un puerto ocupado valida el servidor viejo
-
-**Error:** el smoke test de Fase 10 dio `jobs-noauth:200` y "token no inyectado" contra `127.0.0.1:8765` — resultados que parecían un agujero de seguridad. No lo eran: un granian de la Sesión 8 seguía escuchando ese puerto y el proceso no se podía matar (`taskkill` decía que no existía, aunque el socket seguía en Listen).
-
-**Root Cause:** el comando de la Sesión 8 lanzó el servidor y el tool lo cortó por timeout, dejando un worker vivo. El smoke test nuevo no verificó que el puerto fuera suyo antes de interpretar las respuestas.
-
-**Solución:** reproducir en otro puerto (`LMD_PORT=8766`) y ahí sí: health 200 público, jobs sin token 401, shell con `<meta lmd-token>`, jobs con header 200, cookie 200 (ruta del EventSource), `Host: evil.example.com` 403, y `LMD_HOST=0.0.0.0` aborta con `Refusing to bind`. Para pruebas locales de API, verificar que el puerto esté libre antes de concluir nada de una respuesta.
-
-**Regla de Oro:** *Antes de interpretar la respuesta de un smoke test e2e, confirmá que el proceso que escucha el puerto es el que acabás de arrancar (puerto libre o puerto alterno): un servidor viejo en 8765 es indistinguishable de un fallo de seguridad.*
-
-### Regla de Oro 10.3 [Tooling / pnpm]: los settings de build scripts de pnpm 10 ya no existen en pnpm 11
-
-**Error:** el job `frontend` de CI venía fallando en ambos OS desde el commit de Fase 3, sin que nadie lo notara: `pnpm install --frozen-lockfile` abortaba con `ERR_PNPM_IGNORED_BUILDS` (deno). En local todo pasaba porque el `node_modules` ya tenía el binario de deno de instalaciones viejas.
-
-**Root Cause:** pnpm 11 (este repo usa `packageManager: pnpm@11.2.2`) **removió** `onlyBuiltDependencies` y lo ignora en silencio; el reemplazo es el mapa `allowBuilds: { deno: true }` en `pnpm-workspace.yaml`. Con `onlyBuiltDependencies`, el postinstall de deno no corría en ninguna máquina limpia — o sea, el runtime JS de yt-dlp-ejs tampoco estaba instalado en CI.
-
-**Solución:** `pnpm-workspace.yaml` usa `allowBuilds: { deno: true }` con comentario que explica la migración; verificado con un clon limpio (`git clone --depth 1` + `rm -rf node_modules` + los 5 pasos del job frontend) antes de pushear. Codemod oficial: `pnpx codemod run pnpm-v10-to-v11`.
-
-**Regla de Oro:** *Un `pnpm install` que pasa en tu máquina no prueba nada si los `node_modules` ya existían: reproducí los pasos de CI en un clon limpio antes de declarar verde cualquier job de JS. Y si cambiás de versión mayor de pnpm, los settings de build scripts se renombran — no se borran en silencio.*
+**Regla de Oro:** *Para detectar en runtime una extensión de firma de un método que ya existe en el protocolo base, nunca uses `isinstance` runtime_checkable (presencia no prueba firma, y pyright lo marca como overlap inseguro): inspeccioná `inspect.signature` o dale a la capacidad un nombre de método propio.*
 
 ### Regla de Oro 12.1 [Retention / tiempo]: el mantenimiento nunca toca `updated_at`
 

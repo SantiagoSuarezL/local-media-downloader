@@ -21,6 +21,9 @@ Formato de cada entrada: fecha, target/módulo, observación, hipótesis, estado
   *Estado:* abierto — monitorear al cerrar Fase 13/14: si un preset nuevo hace
   que el batch típico se acerque a 64 KiB, subir el límite o paginar el submit
   del dashboard es la corrección (y lleva test en `test_smoke_e2e.py`).
+  Nota Sesión 18 (slice encode-options Fase 14): los intents crecieron 2 keys
+  opcionales (`video_bitrate`/`video_framerate`, ~50 B solo cuando se usan) —
+  el batch típico sigue lejos del límite; re-chequear al cerrar Fase 14.
   *Acción:* ninguna todavía; la sonda 413 del smoke ya cubre el comportamiento
   actual (va última y con cliente fresco: el 413 se responde sin consumir el
   body y reutilizar ese keep-alive envenena la siguiente petición).

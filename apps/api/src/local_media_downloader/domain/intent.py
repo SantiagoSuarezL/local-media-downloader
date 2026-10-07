@@ -22,7 +22,17 @@ _VIDEO_CONTAINERS = ("mp4", "mkv", "webm", "gif", "webp", "sticker", "mobile")
 _AUDIO_CONTAINERS = ("mp3", "m4a", "opus", "wav")
 _CONTAINERS = _VIDEO_CONTAINERS + _AUDIO_CONTAINERS
 
-_ALLOWED_KEYS = {"media", "quality", "container", "audio", "video_codec", "processing"}
+_ALLOWED_KEYS = {
+    "media",
+    "quality",
+    "container",
+    "audio",
+    "video_codec",
+    "video_bitrate",
+    "video_framerate",
+    "processing",
+}
+_VIDEO_CODECS = ("source", "h264", "vp9", "av1")
 _PROCESSING_KEYS = {"resize", "trim", "crop"}
 _PLAIN_SECONDS = re.compile(r"\d{1,5}(?:\.\d{1,3})?")
 _CLOCK = re.compile(r"(?:(\d{1,2}):)?([0-5]?\d):([0-5]?\d(?:\.\d{1,3})?)")
@@ -35,6 +45,11 @@ _CROP_BOX_RE = re.compile(r"^(\d{2,5})x(\d{2,5})$")
 _CROP_OFFSET_BOX_RE = re.compile(r"^(\d{2,5})x(\d{2,5})\+(\d{1,5})\+(\d{1,5})$")
 _MAX_CROP_DIMENSION = 8192
 _CROP_MESSAGE = "processing.crop must look like '640x480' or '640x480+100+50'"
+_BITRATE_RE = re.compile(r"^\d{2,5}k$")
+_MAX_BITRATE_KB = 64_000
+_MIN_BITRATE_KB = 64
+_FRAMERATE_RE = re.compile(r"^\d{1,3}(?:\.\d{1,2})?$")
+_MAX_FRAMERATE = 120.0
 
 
 class MediaChoice(StrEnum):
@@ -128,8 +143,10 @@ class OutputIntent:
     quality: QualityChoice
     container: str
     audio: AudioChoice
-    video_codec: str  # only "source" is accepted until Phase 14 presets
+    video_codec: str  # "source", "h264", "vp9" or "av1"
     processing: Processing = Processing()
+    video_bitrate: str | None = None
+    video_framerate: str | None = None
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -138,6 +155,8 @@ class OutputIntent:
             "container": self.container,
             "audio": self.audio.value,
             "video_codec": self.video_codec,
+            "video_bitrate": self.video_bitrate,
+            "video_framerate": self.video_framerate,
             "processing": self.processing.as_dict(),
         }
 
@@ -168,8 +187,18 @@ def parse_intent(payload: Any) -> OutputIntent:
     if audio_raw not in _AUDIO:
         raise _bad(f"audio must be one of {_AUDIO}")
     video_codec = payload.get("video_codec", "source")
-    if video_codec != "source":
-        raise _bad('only video_codec="source" is supported')
+    if video_codec not in _VIDEO_CODECS:
+        raise _bad(f"video_codec must be one of {_VIDEO_CODECS}")
+    video_bitrate = payload.get("video_bitrate")
+    if video_bitrate is not None:
+        if not isinstance(video_bitrate, str):
+            raise _bad("video_bitrate must be a string like '2500k'")
+        parse_video_bitrate(video_bitrate)
+    video_framerate = payload.get("video_framerate")
+    if video_framerate is not None:
+        if not isinstance(video_framerate, str):
+            raise _bad("video_framerate must be a string like '30'")
+        parse_video_framerate(video_framerate)
     processing = payload.get("processing") or {}
     if not isinstance(processing, dict):
         raise _bad("processing must be an object")
@@ -213,7 +242,29 @@ def parse_intent(payload: Any) -> OutputIntent:
         audio=audio,
         video_codec=video_codec,
         processing=Processing(resize=resize, trim=trim, crop=crop),
+        video_bitrate=video_bitrate,
+        video_framerate=video_framerate,
     )
+
+
+def parse_video_bitrate(value: str) -> str:
+    """Parse ``2500k`` into a normalized bitrate (``64k``..``64000k``)."""
+    raw = value.strip().lower()
+    if _BITRATE_RE.fullmatch(raw):
+        kb = int(raw[:-1])
+        if _MIN_BITRATE_KB <= kb <= _MAX_BITRATE_KB:
+            return f"{kb}k"
+    raise _bad("video_bitrate must look like '2500k' (64k..64000k)")
+
+
+def parse_video_framerate(value: str) -> str:
+    """Parse ``30`` or ``29.97`` into a normalized framerate (1..120)."""
+    raw = value.strip()
+    if _FRAMERATE_RE.fullmatch(raw):
+        fps = float(raw)
+        if 0 < fps <= _MAX_FRAMERATE:
+            return raw
+    raise _bad("video_framerate must look like '30' or '29.97' (1..120)")
 
 
 def parse_trim(value: str) -> tuple[float, float]:

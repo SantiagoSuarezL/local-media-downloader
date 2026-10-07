@@ -87,6 +87,8 @@ export interface OutputIntent {
   container: string
   audio: 'include' | 'remove' | 'only'
   video_codec: string
+  video_bitrate?: string | null
+  video_framerate?: string | null
   processing: { resize: string | null; trim: string | null; crop: string | null }
 }
 
