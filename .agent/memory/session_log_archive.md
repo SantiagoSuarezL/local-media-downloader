@@ -460,3 +460,10 @@ con los 13 nuevos: 5 parse_probe + 8 acceptance ffmpeg). JS sin cambios.
 - Fix del modelo caro: E501 en `ffmpeg.py:141` (f-string del filtro sticker partida). Gates verdes: pytest 326 passed/3 skipped, pyright 0, ruff clean, pnpm lint/format/check/test/build verdes (22 vitest ext + 88 web). Total: 439 tests.
 - Nota de revisión: el planner también corrigió webm a VP9/Opus (antes libx264/aac en webm, no estándar); ningún test fijaba los códecs viejos. Commit `b4c10cf` + push.
 - Próxima fase: 14 (Advanced processing).
+
+### Sesión 15 — 2026-10-07 — opencode/muse-spark (fix + verificación) vía OpenCode
+
+- HANDOFF Fase 14/trim: `test_trim_past_end_of_media_fails_validation` en rojo — `FFmpegProcessor._run` validaba sin limpiar (ramas timeout/exit≠0 sí hacían `unlink`); con `start=50` sobre 6 s ffmpeg sale 0 dejando archivo inválido y `validate` lanzaba sin borrarlo. Fix: `try/except ExtractionError → unlink + raise` en `_run` y en `_check_trimmed` (2 wraps, patrón ya usado en `convert_preset`); `validate()` sigue pura; test intacto, ningún test viejo tocado.
+- Slice trim verificado (código del modelo barato, sin debilitar tests): `parse_trim` + validación en `parse_intent`, trim fuerza transcode con `trim_start/trim_end`, `TrimTool` opcional en executor, `transcode_trimmed`/`extract_audio_trimmed`/`_trim_args` en ffmpeg. DTO `processing` sin cambios → sin sync frontend. Resto de Fase 14 (crop/resize/bitrate/fps/subtítulos/metadata) pendiente por alcance.
+- Gates TODO VERDE: ruff check+format clean, pyright 0, pytest 358 passed/3 skipped + smoke 1 passed, pnpm lint/format:check/check/test (22 ext + 88 web)/build verdes. Total: 469 tests.
+- Commit del slice + fix con push; `graphify update .` corrido.

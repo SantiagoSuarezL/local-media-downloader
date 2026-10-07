@@ -1,15 +1,15 @@
-"""Phase 14 — trim capability matrix.
+"""Phase 14 — resize capability matrix.
 
-Trim is the first advanced-processing capability. Matrix:
+Resize is the second advanced-processing capability. Matrix:
 
-| target                         | trim | strategy                         |
-|--------------------------------|------|----------------------------------|
-| mp4/mkv/webm (audio included)  | yes  | transcode (accurate cut)         |
-| mp4/mkv/webm (audio removed)   | yes  | transcode, no audio              |
-| mp3/m4a/opus/wav               | yes  | extract_audio with window        |
-| gif/webp/sticker/mobile        | no   | rejected before execution        |
-| live source                    | no   | rejected before execution        |
-| resize                         | n/a  | separate capability, see test_resize.py |
+| target                         | resize | strategy                         |
+|--------------------------------|--------|----------------------------------|
+| mp4/mkv/webm (audio included)  | yes    | transcode with scale             |
+| mp4/mkv/webm (audio removed)   | yes    | transcode, no audio              |
+| mp3/m4a/opus/wav               | no     | rejected (audio-only)            |
+| gif/webp/sticker/mobile        | no     | rejected before execution        |
+| live source                    | no     | rejected before execution        |
+| trim + resize                  | yes    | transcode with scale + trim      |
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ import pytest
 
 from local_media_downloader.adapters.ffmpeg import FFmpegProcessor
 from local_media_downloader.domain.errors import ErrorCode, ExtractionError
-from local_media_downloader.domain.intent import parse_intent, parse_trim
+from local_media_downloader.domain.intent import parse_intent, parse_resize
 from local_media_downloader.domain.media import FormatKind, MediaFormat, MediaInfo, MediaSource
 from local_media_downloader.services.executor import DefaultExecutor
 from local_media_downloader.services.planner import Planner
@@ -70,89 +70,88 @@ def _info(duration: float | None = 60.0, *, live: bool = False) -> MediaInfo:
     )
 
 
-def _intent(container: str, audio: str, trim: str | None = "00:10-00:20") -> dict[str, object]:
+def _intent(
+    container: str, audio: str, resize: str | None = "720p", trim: str | None = None
+) -> dict[str, object]:
+    processing: dict[str, str] = {}
+    if resize is not None:
+        processing["resize"] = resize
+    if trim is not None:
+        processing["trim"] = trim
     return {
         "media": "audio" if audio == "only" else "video",
         "quality": "best",
         "container": container,
         "audio": audio,
         "video_codec": "source",
-        "processing": {"trim": trim},
+        "processing": processing,
     }
 
 
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
-        ("00:10-00:20", (10.0, 20.0)),
-        ("1:02:03-1:02:10.5", (3723.0, 3730.5)),
-        ("5-12.25", (5.0, 12.25)),
-        ("0:00-0:01", (0.0, 1.0)),
+        ("720p", "720p"),
+        ("1080p", "1080p"),
+        ("1280x720", "1280x720"),
+        ("1920x1080", "1920x1080"),
+        ("480P", "480p"),
     ],
 )
-def test_parse_trim_accepts_closed_formats(value: str, expected: tuple[float, float]) -> None:
-    assert parse_trim(value) == expected
+def test_parse_resize_accepts_closed_formats(value: str, expected: str) -> None:
+    assert parse_resize(value) == expected
 
 
 @pytest.mark.parametrize(
     "value",
     [
         "",
-        "10",
-        "20-10",
-        "10-10",
-        "a-b",
-        "00:10-00:20-00:30",
-        "00:10; rm -rf /-00:20",
-        "-5-10",
-        "00:99-01:00",
-        "0-100000",
+        "720",
+        "1080",
+        "720p1080",
+        "1280*720",
+        "1280X720",
+        "720p; rm -rf /",
+        "0x0",
+        "99999x99999",
     ],
 )
-def test_parse_trim_rejects_everything_else(value: str) -> None:
+def test_parse_resize_rejects_everything_else(value: str) -> None:
     with pytest.raises(ExtractionError) as exc:
-        parse_trim(value)
+        parse_resize(value)
     assert exc.value.code is ErrorCode.UNSUPPORTED_INTENT
 
 
-def test_parse_intent_validates_trim_up_front() -> None:
+def test_parse_intent_validates_resize_up_front() -> None:
     with pytest.raises(ExtractionError) as exc:
-        parse_intent(_intent("mp4", "include", trim="20-10"))
+        parse_intent(_intent("mp4", "include", resize="720"))
     assert exc.value.code is ErrorCode.UNSUPPORTED_INTENT
 
 
-def test_intent_dto_shape_is_unchanged_by_trim() -> None:
+def test_intent_dto_shape_is_unchanged_by_resize() -> None:
     intent = parse_intent(_intent("mp4", "include"))
-    assert intent.processing.as_dict() == {"resize": None, "trim": "00:10-00:20"}
+    assert intent.processing.as_dict() == {"resize": "720p", "trim": None}
 
 
-def test_trim_forces_transcode_even_when_copy_is_possible() -> None:
+def test_resize_forces_transcode_even_when_copy_is_possible() -> None:
     plan = Planner().plan(parse_intent(_intent("mp4", "include")), _info())
     assert plan.strategy == "transcode"
     kinds = [s.kind for s in plan.steps]
     assert "TRANSCODE" in kinds and "REMUX" not in kinds
     detail = next(s.detail for s in plan.steps if s.kind == "TRANSCODE")
-    assert detail["trim_start"] == "10.000"
-    assert detail["trim_end"] == "20.000"
+    assert detail["resize"] == "720p"
 
 
-def test_trim_video_only_never_stream_copies() -> None:
+def test_resize_video_only_never_stream_copies() -> None:
     plan = Planner().plan(parse_intent(_intent("mp4", "remove")), _info())
     assert plan.strategy == "transcode"
     detail = next(s.detail for s in plan.steps if s.kind == "TRANSCODE")
     assert detail["audio"] == "none"
-    assert detail["trim_start"] == "10.000"
+    assert detail["resize"] == "720p"
 
 
-def test_trim_audio_extraction_carries_window() -> None:
-    plan = Planner().plan(parse_intent(_intent("mp3", "only")), _info())
-    assert plan.strategy == "extract_audio"
-    detail = next(s.detail for s in plan.steps if s.kind == "EXTRACT_AUDIO")
-    assert (detail["trim_start"], detail["trim_end"]) == ("10.000", "20.000")
-
-
-def test_no_trim_keeps_stream_copy() -> None:
-    plan = Planner().plan(parse_intent(_intent("mp4", "include", trim=None)), _info())
+def test_no_resize_keeps_stream_copy() -> None:
+    plan = Planner().plan(parse_intent(_intent("mp4", "include", resize=None)), _info())
     assert plan.strategy == "copy"
 
 
@@ -160,35 +159,50 @@ def test_no_trim_keeps_stream_copy() -> None:
     ("container", "audio"),
     [("gif", "remove"), ("webp", "remove"), ("sticker", "remove"), ("mobile", "include")],
 )
-def test_trim_rejected_for_media_presets(container: str, audio: str) -> None:
+def test_resize_rejected_for_media_presets(container: str, audio: str) -> None:
     with pytest.raises(ExtractionError) as exc:
         Planner().plan(parse_intent(_intent(container, audio)), _info())
     assert exc.value.code is ErrorCode.UNSUPPORTED_INTENT
 
 
-def test_trim_rejected_for_live_sources() -> None:
+def test_resize_rejected_for_live_sources() -> None:
     with pytest.raises(ExtractionError) as exc:
         Planner().plan(parse_intent(_intent("mp4", "include")), _info(live=True))
     assert exc.value.code is ErrorCode.UNSUPPORTED_INTENT
 
 
-def test_trim_start_beyond_duration_is_rejected() -> None:
+@pytest.mark.parametrize("container", ["mp3", "m4a", "opus", "wav"])
+def test_resize_rejected_for_audio_only(container: str) -> None:
+    payload = {
+        "media": "audio",
+        "quality": "best",
+        "container": container,
+        "audio": "only",
+        "video_codec": "source",
+        "processing": {"resize": "720p"},
+    }
     with pytest.raises(ExtractionError) as exc:
-        Planner().plan(parse_intent(_intent("mp4", "include", trim="01:30-01:40")), _info(60.0))
+        Planner().plan(parse_intent(payload), _info())
     assert exc.value.code is ErrorCode.UNSUPPORTED_INTENT
 
 
-def test_trim_with_unknown_duration_is_allowed() -> None:
-    plan = Planner().plan(parse_intent(_intent("mp4", "include")), _info(None))
+def test_resize_with_trim_combines_both() -> None:
+    plan = Planner().plan(
+        parse_intent(_intent("mp4", "include", resize="720p", trim="00:10-00:20")), _info()
+    )
     assert plan.strategy == "transcode"
+    detail = next(s.detail for s in plan.steps if s.kind == "TRANSCODE")
+    assert detail["resize"] == "720p"
+    assert detail["trim_start"] == "10.000"
+    assert detail["trim_end"] == "20.000"
 
 
-class _NoTrimProcessor:
+class _NoResizeProcessor:
     def transcode(self, source: Path, destination: Path, **_kw: object) -> Path:
         return destination
 
 
-def test_executor_rejects_trim_when_processor_lacks_capability(tmp_path: Path) -> None:
+def test_executor_rejects_resize_when_processor_lacks_capability(tmp_path: Path) -> None:
     import asyncio
 
     from local_media_downloader.db import initialize
@@ -197,7 +211,7 @@ def test_executor_rejects_trim_when_processor_lacks_capability(tmp_path: Path) -
     executor = DefaultExecutor(
         initialize(tmp_path / "app.db"),
         extractor=None,
-        processor=_NoTrimProcessor(),  # type: ignore[arg-type]
+        processor=_NoResizeProcessor(),  # type: ignore[arg-type]
         data_dir=tmp_path,
         bus=EventBus(),
         download_sem=asyncio.Semaphore(1),
@@ -208,7 +222,7 @@ def test_executor_rejects_trim_when_processor_lacks_capability(tmp_path: Path) -
     operation = (
         "TRANSCODE",
         "ffmpeg",
-        {"container": "mp4", "trim_start": "1.000", "trim_end": "2.000"},
+        {"container": "mp4", "resize": "720p"},
     )
     with pytest.raises(ExtractionError) as exc:
         executor._process(operation, source, tmp_path / "o.mp4", asyncio.Event())
@@ -217,7 +231,7 @@ def test_executor_rejects_trim_when_processor_lacks_capability(tmp_path: Path) -
 
 @pytest.fixture(scope="module")
 def clip(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    out = tmp_path_factory.mktemp("trim") / "source.mp4"
+    out = tmp_path_factory.mktemp("resize") / "source.mp4"
     completed = subprocess.run(
         [
             "ffmpeg",
@@ -250,39 +264,47 @@ def clip(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.mark.skipif(not _FFMPEG, reason="ffmpeg/ffprobe not installed")
-def test_transcode_trimmed_cuts_the_requested_window(clip: Path, tmp_path: Path) -> None:
+def test_resize_to_720p_produces_correct_height(clip: Path, tmp_path: Path) -> None:
     processor = FFmpegProcessor()
-    out = processor.transcode_trimmed(clip, tmp_path / "out.mp4", start=1.0, end=3.0)
+    out = processor.resize(clip, tmp_path / "out.mp4", target="720p")
     probe = processor.validate(out)
-    assert probe.duration_seconds is not None
-    assert probe.duration_seconds == pytest.approx(2.0, abs=0.5)
+    assert probe.video_stream is not None
+    assert probe.video_stream.height == 720
     assert probe.has_video and probe.has_audio
 
 
 @pytest.mark.skipif(not _FFMPEG, reason="ffmpeg/ffprobe not installed")
-def test_transcode_trimmed_without_audio(clip: Path, tmp_path: Path) -> None:
+def test_resize_to_dimensions_fits_bbox_preserving_aspect(clip: Path, tmp_path: Path) -> None:
+    # 1280x720 is a maximum bbox, not an exact deforming stretch: the 4:3
+    # fixture (160x120) fits by height → 960x720.
     processor = FFmpegProcessor()
-    out = processor.transcode_trimmed(
-        clip, tmp_path / "out.mp4", start=2.0, end=4.0, audio_codec="none"
-    )
+    out = processor.resize(clip, tmp_path / "out.mp4", target="1280x720")
+    probe = processor.validate(out)
+    assert probe.video_stream is not None
+    assert probe.video_stream.width == 960
+    assert probe.video_stream.height == 720
+
+
+@pytest.mark.skipif(not _FFMPEG, reason="ffmpeg/ffprobe not installed")
+def test_resize_without_audio(clip: Path, tmp_path: Path) -> None:
+    processor = FFmpegProcessor()
+    out = processor.resize(clip, tmp_path / "out.mp4", target="720p", audio_codec="none")
     probe = processor.validate(out)
     assert probe.has_video and not probe.has_audio
-    assert probe.duration_seconds == pytest.approx(2.0, abs=0.5)
+    assert probe.video_stream is not None
+    assert probe.video_stream.height == 720
 
 
 @pytest.mark.skipif(not _FFMPEG, reason="ffmpeg/ffprobe not installed")
-def test_extract_audio_trimmed_cuts_the_requested_window(clip: Path, tmp_path: Path) -> None:
+def test_trimmed_resize_applies_both_in_one_pass(clip: Path, tmp_path: Path) -> None:
+    # Trim + resize must not lose either operation: single-pass scale of the
+    # [1s, 3s) window to 720p height.
     processor = FFmpegProcessor()
-    out = processor.extract_audio_trimmed(clip, tmp_path / "out.mp3", start=1.0, end=3.0)
+    out = processor.transcode_trimmed(
+        clip, tmp_path / "out.mp4", start=1.0, end=3.0, resize_target="720p"
+    )
     probe = processor.validate(out)
-    assert probe.has_audio and not probe.has_video
-    assert probe.duration_seconds == pytest.approx(2.0, abs=0.5)
-
-
-@pytest.mark.skipif(not _FFMPEG, reason="ffmpeg/ffprobe not installed")
-def test_trim_past_end_of_media_fails_validation(clip: Path, tmp_path: Path) -> None:
-    processor = FFmpegProcessor()
-    destination = tmp_path / "out.mp4"
-    with pytest.raises(ExtractionError):
-        processor.transcode_trimmed(clip, destination, start=50.0, end=60.0)
-    assert not destination.exists()
+    assert probe.video_stream is not None
+    assert probe.video_stream.height == 720
+    assert probe.duration_seconds is not None
+    assert abs(probe.duration_seconds - 2.0) < 1.0

@@ -96,14 +96,24 @@ class FFmpegProcessor:
         end: float,
         video_codec: str = "libx264",
         audio_codec: str = "aac",
+        resize_target: str | None = None,
         timeout: float = DEFAULT_TIMEOUT,
     ) -> Path:
-        """Re-encode only the ``[start, end)`` window (accurate cut, never stream copy)."""
+        """Re-encode only the ``[start, end)`` window (accurate cut, never stream copy).
+
+        When ``resize_target`` (``720p`` or ``1280x720`` bbox) is given, the
+        scale filter is applied in the same pass — trim + resize never run as
+        two lossy encodes.
+        """
+        video_filter: list[str] = []
+        if resize_target is not None:
+            video_filter = ["-vf", _scale_filter(resize_target)]
         result = self._run(
             source,
             destination,
             [
                 *_trim_args(start, end),
+                *video_filter,
                 "-c:v",
                 video_codec,
                 *(
@@ -115,7 +125,10 @@ class FFmpegProcessor:
             ],
             timeout=timeout,
         )
-        return self._check_trimmed(result, start, end)
+        checked = self._check_trimmed(result, start, end)
+        if resize_target is not None:
+            return self._check_resized(checked, resize_target)
+        return checked
 
     def extract_audio_trimmed(
         self,
@@ -169,6 +182,93 @@ class FFmpegProcessor:
             ["-vn", "-c:a", codec, "-b:a", bitrate],
             timeout=timeout,
         )
+
+    def resize(
+        self,
+        source: Path,
+        destination: Path,
+        *,
+        target: str,
+        video_codec: str = "libx264",
+        audio_codec: str = "aac",
+        timeout: float = DEFAULT_TIMEOUT,
+    ) -> Path:
+        """Resize video to target height (``720p``) or bbox (``1280x720``).
+
+        ``1280x720`` is a maximum bounding box preserving aspect ratio
+        (4:3 → 960x720), never an exact deforming stretch. Always transcodes —
+        stream copy cannot change resolution.
+        """
+        result = self._run(
+            source,
+            destination,
+            [
+                "-vf",
+                _scale_filter(target),
+                "-c:v",
+                video_codec,
+                *(
+                    ["-deadline", "good", "-cpu-used", "4"]
+                    if video_codec == "libvpx-vp9"
+                    else ["-preset", "veryfast"]
+                ),
+                *(["-an"] if audio_codec == "none" else ["-c:a", audio_codec]),
+            ],
+            timeout=timeout,
+        )
+        return self._check_resized(result, target)
+
+    def _check_resized(self, result: Path, target: str) -> Path:
+        try:
+            probe = self.validate(result)
+        except ExtractionError:
+            result.unlink(missing_ok=True)
+            raise
+        video = probe.video_stream
+        if video is None:
+            result.unlink(missing_ok=True)
+            raise ExtractionError(
+                ErrorCode.VALIDATION_FAILED,
+                "Resized output has no video stream.",
+                retryable=False,
+            )
+        if target.endswith("p"):
+            expected_height = int(target[:-1])
+            if video.height is not None and video.height != expected_height:
+                result.unlink(missing_ok=True)
+                raise ExtractionError(
+                    ErrorCode.VALIDATION_FAILED,
+                    f"Resized height {video.height} != target {expected_height}.",
+                    retryable=False,
+                )
+            return result
+        try:
+            target_w, target_h = (int(part) for part in target.lower().split("x"))
+        except ValueError:
+            result.unlink(missing_ok=True)
+            raise ExtractionError(
+                ErrorCode.VALIDATION_FAILED,
+                f"Invalid resize target {target!r}.",
+                retryable=False,
+            ) from None
+        width, height = video.width, video.height
+        if width is None or height is None:
+            result.unlink(missing_ok=True)
+            raise ExtractionError(
+                ErrorCode.VALIDATION_FAILED,
+                "Resized output has unknown dimensions.",
+                retryable=False,
+            )
+        fits = width <= target_w + 2 and height <= target_h + 2
+        touches = abs(width - target_w) <= 2 or abs(height - target_h) <= 2
+        if not (fits and touches):
+            result.unlink(missing_ok=True)
+            raise ExtractionError(
+                ErrorCode.VALIDATION_FAILED,
+                f"Resized {width}x{height} does not fit bbox {target}.",
+                retryable=False,
+            )
+        return result
 
     def video_only(
         self, source: Path, destination: Path, *, timeout: float = DEFAULT_TIMEOUT
@@ -353,3 +453,10 @@ class FFmpegProcessor:
 
 def _trim_args(start: float, end: float) -> list[str]:
     return ["-ss", f"{start:.3f}", "-t", f"{end - start:.3f}"]
+
+
+def _scale_filter(target: str) -> str:
+    """Closed scale filter for a validated resize target."""
+    if target.endswith("p"):
+        return f"scale=-2:{target[:-1]}"
+    return f"scale={target.lower()}:force_original_aspect_ratio=decrease:force_divisible_by=2"

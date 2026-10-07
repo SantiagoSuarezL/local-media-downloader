@@ -27,6 +27,10 @@ _PROCESSING_KEYS = {"resize", "trim"}
 _PLAIN_SECONDS = re.compile(r"\d{1,5}(?:\.\d{1,3})?")
 _CLOCK = re.compile(r"(?:(\d{1,2}):)?([0-5]?\d):([0-5]?\d(?:\.\d{1,3})?)")
 _MAX_TRIM_SECONDS = 86_400.0
+_HEIGHT_RE = re.compile(r"^(\d{2,4})p$")
+_DIMENSIONS_RE = re.compile(r"^(\d{2,5})x(\d{2,5})$")
+_MAX_RESIZE_HEIGHT = 4320
+_MAX_RESIZE_DIMENSION = 8192
 
 
 class MediaChoice(StrEnum):
@@ -52,6 +56,30 @@ class Processing:
 
     def as_dict(self) -> dict[str, object]:
         return {"resize": self.resize, "trim": self.trim}
+
+
+def parse_resize(value: str) -> str:
+    """Parse ``720p`` or ``1280x720`` into a normalized resize target.
+
+    Returns the validated string lowercased — the planner and adapter decide
+    how to interpret it. Only closed formats are accepted: height ``Np``
+    (case-insensitive ``p``, 1..4320) or dimensions ``WxH`` (lowercase ``x``
+    only, each side 1..8192). Absurd sizes like ``99999x99999`` are rejected
+    here, fail-fast, before any tool is invoked.
+    """
+    raw = value.strip()
+    lowered = raw.lower()
+    if _HEIGHT_RE.fullmatch(lowered):
+        height = int(lowered[:-1])
+        if 1 <= height <= _MAX_RESIZE_HEIGHT:
+            return lowered
+        raise _bad("processing.resize must look like '720p' or '1280x720'")
+    if _DIMENSIONS_RE.fullmatch(raw):
+        width, height = (int(part) for part in lowered.split("x"))
+        if 1 <= width <= _MAX_RESIZE_DIMENSION and 1 <= height <= _MAX_RESIZE_DIMENSION:
+            return lowered
+        raise _bad("processing.resize must look like '720p' or '1280x720'")
+    raise _bad("processing.resize must look like '720p' or '1280x720'")
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,8 +138,10 @@ def parse_intent(payload: Any) -> OutputIntent:
         raise _bad(f"unknown processing keys: {sorted(unknown_p)}")
     resize = processing.get("resize")
     trim = processing.get("trim")
-    if resize is not None and not isinstance(resize, str):
-        raise _bad("processing.resize must be a string like '720p'")
+    if resize is not None:
+        if not isinstance(resize, str):
+            raise _bad("processing.resize must be a string like '720p'")
+        parse_resize(resize)
     if trim is not None and not isinstance(trim, str):
         raise _bad("processing.trim must be a string like '00:10-00:20'")
     if trim is not None:

@@ -83,6 +83,7 @@ class TrimTool(Protocol):
         end: float,
         video_codec: str = ...,
         audio_codec: str = ...,
+        resize_target: str | None = ...,
         timeout: float = ...,
     ) -> Path: ...
 
@@ -95,6 +96,22 @@ class TrimTool(Protocol):
         end: float,
         codec: str = ...,
         bitrate: str = ...,
+        timeout: float = ...,
+    ) -> Path: ...
+
+
+@runtime_checkable
+class ResizeTool(Protocol):
+    """Optional capability: resolution scaling (checked, never assumed)."""
+
+    def resize(
+        self,
+        source: Path,
+        destination: Path,
+        *,
+        target: str,
+        video_codec: str = ...,
+        audio_codec: str = ...,
         timeout: float = ...,
     ) -> Path: ...
 
@@ -253,6 +270,9 @@ class DefaultExecutor:
         if "trim_start" in detail and kind in {"TRANSCODE", "EXTRACT_AUDIO"}:
             self._process_trimmed(kind, detail, source, target)
             return
+        if "resize" in detail and kind == "TRANSCODE":
+            self._process_resized(detail, source, target)
+            return
         if kind == "REMUX":
             self._processor.remux(source, target)
         elif kind == "TRANSCODE":
@@ -288,6 +308,13 @@ class DefaultExecutor:
         start = float(detail["trim_start"])
         end = float(detail["trim_end"])
         if kind == "TRANSCODE":
+            resize_target = detail.get("resize")
+            if resize_target is not None and not isinstance(processor, ResizeTool):
+                raise ExtractionError(
+                    ErrorCode.UNSUPPORTED_INTENT,
+                    "The media processor does not support resizing.",
+                    retryable=False,
+                )
             processor.transcode_trimmed(
                 source,
                 target,
@@ -297,11 +324,36 @@ class DefaultExecutor:
                 audio_codec=detail.get(
                     "audio_codec", "none" if detail.get("audio") == "none" else "aac"
                 ),
+                resize_target=resize_target,
             )
         else:
+            if "resize" in detail:
+                raise ExtractionError(
+                    ErrorCode.UNSUPPORTED_INTENT,
+                    "Resize is not supported for audio-only output.",
+                    retryable=False,
+                )
             processor.extract_audio_trimmed(
                 source, target, start=start, end=end, codec=detail.get("codec", "libmp3lame")
             )
+
+    def _process_resized(self, detail: dict[str, str], source: Path, target: Path) -> None:
+        processor = self._processor
+        if not isinstance(processor, ResizeTool):
+            raise ExtractionError(
+                ErrorCode.UNSUPPORTED_INTENT,
+                "The media processor does not support resizing.",
+                retryable=False,
+            )
+        processor.resize(
+            source,
+            target,
+            target=detail["resize"],
+            video_codec=detail.get("video_codec", "libx264"),
+            audio_codec=detail.get(
+                "audio_codec", "none" if detail.get("audio") == "none" else "aac"
+            ),
+        )
 
     def _publish_state(self, job_id: str, state: JobState, *, stage: str) -> None:
         self._bus.publish(

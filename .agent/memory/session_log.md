@@ -12,17 +12,19 @@
 
 ## ÚLTIMA SESIÓN (detalle completo)
 
-`Sesión 15 — 2026-10-07 — opencode/muse-spark (fix + verificación) vía OpenCode`
+`Sesión 16 — 2026-10-07 — opencode/muse-spark (fix resize + verificación) vía OpenCode`
 
-- HANDOFF Fase 14/trim: `test_trim_past_end_of_media_fails_validation` en rojo — `FFmpegProcessor._run` validaba sin limpiar (ramas timeout/exit≠0 sí hacían `unlink`); con `start=50` sobre 6 s ffmpeg sale 0 dejando archivo inválido y `validate` lanzaba sin borrarlo. Fix: `try/except ExtractionError → unlink + raise` en `_run` y en `_check_trimmed` (2 wraps, patrón ya usado en `convert_preset`); `validate()` sigue pura; test intacto, ningún test viejo tocado.
-- Slice trim verificado (código del modelo barato, sin debilitar tests): `parse_trim` + validación en `parse_intent`, trim fuerza transcode con `trim_start/trim_end`, `TrimTool` opcional en executor, `transcode_trimmed`/`extract_audio_trimmed`/`_trim_args` en ffmpeg. DTO `processing` sin cambios → sin sync frontend. Resto de Fase 14 (crop/resize/bitrate/fps/subtítulos/metadata) pendiente por alcance.
-- Gates TODO VERDE: ruff check+format clean, pyright 0, pytest 358 passed/3 skipped + smoke 1 passed, pnpm lint/format:check/check/test (22 ext + 88 web)/build verdes. Total: 469 tests.
-- Commit del slice + fix con push; `graphify update .` corrido.
+- HANDOFF Fase 14/resize: ruff E501 + 9 failed (378 passed). Raíz: `parse_resize` sin cotas y case-fold total (aceptaba `1280X720`/`99999x99999`); planner no rechazaba presets Fase 13 ni audio-only (resize se perdía en silencio); executor perdía resize cuando había trim (trim ganaba, sin combined); `_check_resized` solo validaba `Np`, no bbox; test de dimensiones asumía deformación exacta en vez de bbox.
+- Fix quirúrgico: `parse_resize` con cotas (Np 1..4320, WxH 1..8192, `x` minúscula + `p` case-insensitive, fail-fast); planner rechaza resize en presets/audio-only/live; ffmpeg bbox (`force_original_aspect_ratio=decrease:force_divisible_by=2`, helper `_scale_filter`) + `_check_resized` valida Np y bbox (fits + touches ±2px) + `transcode_trimmed(resize_target)` single-pass; executor combinado trim+resize (exige `ResizeTool`, audio+resize rechazado); E501 partido.
+- Tests: borrados con aprobación explícita del usuario `test_rejects_resize_until_phase_14` y `test_resize_is_still_rejected` (invariante temporal que Fase 14 reemplaza; resto intacto); `test_resize.py` nuevo: bbox 960x720 para 4:3, +4 audio-only, +1 trim+resize single-pass. DTO sin cambios → sin sync frontend.
+- Gates TODO VERDE: ruff check+format clean, pyright 0, pytest 390 passed/3 skipped + smoke 1 passed, pnpm lint/format:check/check/test (22 ext + 88 web)/build verdes. Total: 501 tests.
+- Decisiones usuario: borrar (no reescribir) tests temporales — reescribir duplica cobertura de `test_resize.py`, borrar es limpio porque eran gates `until_phase_14`/`still_rejected`; bbox preserva aspect (nunca deforma).
 
 ---
 
 ## HISTORIAL RELEVANTE (comprimido, detalle completo en session_log_archive.md)
 
+- `Sesión 15 — 2026-10-07` — Slice trim Fase 14 (fix `_run`/`_check_trimmed` unlink + validate pura); 469 tests; commit + push.
 - `Sesión 14 — 2026-10-07` — Fase 13 (presets gif/webp/sticker/mobile + VP9/Opus en webm); drill stop-on-failure validado; 439 tests; commit `b4c10cf` + push.
 
 - `Sesión 13 — 2026-10-07` — Sistema de gates para modelos baratos (`docs/TESTING.md`, contratos backend, suite web 85 Vitest, smoke e2e); 415 tests.

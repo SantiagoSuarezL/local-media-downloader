@@ -8,10 +8,11 @@ Translates a validated :class:`OutputIntent` plus the resolved
    (ENGINEERING_PRINCIPLES #84);
 2. audio-only intent always maps to an audio extraction step;
 3. ``audio="remove"`` maps to a video-only stream-copy when compatible;
-4. processing: trim is planned as an accurate re-encode (stream copy can only
-   cut on keyframes); resize is rejected until its capability matrix exists —
-   an intent must never silently degrade (PRD: fake features are worse than
-   rejected intents);
+4. processing: trim and resize are planned as an accurate re-encode (stream
+   copy can neither cut on non-keyframes nor change resolution); resize is
+   rejected for media presets, audio-only output and live sources — an intent
+   must never silently degrade (PRD: fake features are worse than rejected
+   intents);
 5. the plan contains tool steps and static detail only — user input can
    never inject command arguments (TECHNICAL_SPEC §258).
 """
@@ -19,7 +20,7 @@ Translates a validated :class:`OutputIntent` plus the resolved
 from __future__ import annotations
 
 from ..domain.errors import ErrorCode, ExtractionError
-from ..domain.intent import AudioChoice, MediaChoice, OutputIntent, parse_trim
+from ..domain.intent import AudioChoice, MediaChoice, OutputIntent, parse_resize, parse_trim
 from ..domain.media import MediaInfo
 from ..domain.plan import ExecutionPlan, PlanStep
 
@@ -41,12 +42,6 @@ _AUDIO_CODEC_FOR_CONTAINER = {
 
 class Planner:
     def plan(self, intent: OutputIntent, info: MediaInfo) -> ExecutionPlan:
-        if intent.processing.resize is not None:
-            raise ExtractionError(
-                ErrorCode.UNSUPPORTED_INTENT,
-                "Resize intents are not supported yet.",
-                retryable=False,
-            )
         if not info.formats:
             raise ExtractionError(
                 ErrorCode.UNSUPPORTED_INTENT,
@@ -56,6 +51,7 @@ class Planner:
 
         source_container = _primary_container(info)
         trim = self._trim_detail(intent, info)
+        resize = self._resize_detail(intent, info)
 
         if intent.container in {"gif", "webp", "sticker", "mobile"}:
             if trim:
@@ -102,9 +98,9 @@ class Planner:
             return self._audio_plan(intent, trim)
 
         if intent.audio is AudioChoice.REMOVE:
-            return self._video_only_plan(intent, source_container, trim)
+            return self._video_only_plan(intent, source_container, trim, resize)
 
-        return self._full_video_plan(intent, source_container, trim)
+        return self._full_video_plan(intent, source_container, trim, resize)
 
     def _trim_detail(self, intent: OutputIntent, info: MediaInfo) -> dict[str, str]:
         if intent.processing.trim is None:
@@ -123,6 +119,34 @@ class Planner:
                 retryable=False,
             )
         return {"trim_start": f"{start:.3f}", "trim_end": f"{end:.3f}"}
+
+    def _resize_detail(self, intent: OutputIntent, info: MediaInfo) -> dict[str, str]:
+        if intent.processing.resize is None:
+            return {}
+        if info.is_live:
+            raise ExtractionError(
+                ErrorCode.UNSUPPORTED_INTENT,
+                "Resize is not supported for live sources.",
+                retryable=False,
+            )
+        if intent.container in {"gif", "webp", "sticker", "mobile"}:
+            raise ExtractionError(
+                ErrorCode.UNSUPPORTED_INTENT,
+                "Resize is not supported together with media presets.",
+                retryable=False,
+            )
+        if (
+            intent.container in {"mp3", "m4a", "opus", "wav"}
+            or intent.media is MediaChoice.AUDIO
+            or intent.audio is AudioChoice.ONLY
+        ):
+            raise ExtractionError(
+                ErrorCode.UNSUPPORTED_INTENT,
+                "Resize is not supported for audio-only output.",
+                retryable=False,
+            )
+        resize = parse_resize(intent.processing.resize)
+        return {"resize": resize}
 
     def _selector(self, intent: OutputIntent, *, audio_only: bool) -> str:
         if audio_only:
@@ -147,10 +171,15 @@ class Planner:
         return ExecutionPlan(steps=steps, strategy="extract_audio")
 
     def _video_only_plan(
-        self, intent: OutputIntent, source_container: str | None, trim: dict[str, str]
+        self,
+        intent: OutputIntent,
+        source_container: str | None,
+        trim: dict[str, str],
+        resize: dict[str, str],
     ) -> ExecutionPlan:
         compatible = (
             not trim
+            and not resize
             and source_container is not None
             and source_container in _CONTAINER_ACCEPTS.get(intent.container, frozenset())
         )
@@ -182,6 +211,7 @@ class Planner:
                     "audio": "none",
                     "container": intent.container,
                     **trim,
+                    **resize,
                 },
             ),
             PlanStep("VALIDATE", "ffprobe", {}),
@@ -190,10 +220,15 @@ class Planner:
         return ExecutionPlan(steps=steps, strategy="transcode")
 
     def _full_video_plan(
-        self, intent: OutputIntent, source_container: str | None, trim: dict[str, str]
+        self,
+        intent: OutputIntent,
+        source_container: str | None,
+        trim: dict[str, str],
+        resize: dict[str, str],
     ) -> ExecutionPlan:
         compatible = (
             not trim
+            and not resize
             and source_container is not None
             and source_container in _CONTAINER_ACCEPTS.get(intent.container, frozenset())
         )
@@ -225,6 +260,7 @@ class Planner:
                     "audio_codec": "libopus" if intent.container == "webm" else "aac",
                     "container": intent.container,
                     **trim,
+                    **resize,
                 },
             ),
             PlanStep("VALIDATE", "ffprobe", {}),

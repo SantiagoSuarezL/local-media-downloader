@@ -177,22 +177,6 @@ def test_rejects_unknown_keys_instead_of_accepting_arbitrary_args() -> None:
     assert "unknown intent keys" in exc.value.message
 
 
-def test_rejects_resize_until_phase_14() -> None:
-    with pytest.raises(ExtractionError) as exc:
-        _plan(
-            {
-                "media": "video",
-                "quality": "best",
-                "container": "mp4",
-                "audio": "include",
-                "video_codec": "source",
-                "processing": {"resize": "720p"},
-            },
-            _mp4_source(),
-        )
-    assert exc.value.code is ErrorCode.UNSUPPORTED_INTENT
-
-
 @pytest.mark.parametrize(
     ("container", "target"),
     [("gif", "gif"), ("webp", "webp"), ("sticker", "webp"), ("mobile", "mp4")],
