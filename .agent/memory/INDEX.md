@@ -5,8 +5,8 @@
 ## Estado del proyecto
 
 **Proyecto:** local-media-downloader
-**Fase actual:** 13 (pendiente, sin empezar)
-**Próxima fase:** 13 — Media presets
+**Fase actual:** 14 (pendiente, sin empezar)
+**Próxima fase:** 14 — Advanced processing
 
 ## Tabla de archivos
 

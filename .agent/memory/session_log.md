@@ -12,19 +12,20 @@
 
 ## ÚLTIMA SESIÓN (detalle completo)
 
-`Sesión 13 — 2026-10-07 — opencode/muse-spark vía OpenCode (PowerShell/Windows)`
+`Sesión 14 — 2026-10-07 — cheap model (Fase 13) + opencode/muse-spark (verificación) vía OpenCode`
 
-- Sistema de gates para modelos baratos: nuevo `docs/TESTING.md` (orden de gates, política STOP con HANDOFF, matriz fases 13-17, pitfalls); regla 11 en IMPLEMENTATION_PLAN; §24 de TECHNICAL_SPEC apunta a TESTING.md; README suma el puntero. Sin commit todavía.
-- **Backend:** `tests/test_contracts.py` (13 tests: todo ErrorCode con status explícito, key sets exactos de cada DTO, envelope único de errores; fixture con NoopExecutor para que el scheduler no toque red) + `tests/test_smoke_e2e.py` (`-m smoke`: servidor real Granian en puerto fresco + data dir temporal, handoff de token por shell/cookie, matriz de status, batch por-ítem, persistencia tras reinicio con mismo token); marker `smoke` registrado en pyproject. Hallazgo: la sonda 413 envenena el keep-alive (va última, con cliente fresco).
-- **Frontend:** suite Vitest nueva en `apps/web` (85 tests: `format/presets/api/live/notify`, Zod `.strict()` en `tests/schemas.ts` — devDependency, no va al bundle — y componentes `JobCard`/`Batch`); `test` script + `resolve.conditions: ['browser']` en vite.config (sin eso `mount()` falla con lifecycle_function_unavailable); `tests/**` entra a tsconfig.app para svelte-check. `pnpm -r test` ya la incluye en CI sin cambios.
-- **Gates:** pytest 308 passed/3 skipped, pyright 0, ruff check+format clean, pnpm lint/format:check/check/test/build verdes (22 vitest ext + 85 web). Total: 415 tests (412 run + 3 live opt-in).
-- Observación nueva en `observations.md`: batch de 100 URLs largas (~225 KB) superaría el límite 64 KiB → 413 legítimo pero extremo; monitorear cuando crezcan los intents (Fase 13/14).
+- Modelo barato implementó Fase 13 con el prompt de 6 pasos + TESTING.md y paró correctamente ante ruff E501 con HANDOFF bien formado (primer drill real del stop-on-failure; el proceso quedó validado).
+- **Fase 13 (Media presets):** contenedores `gif/webp/sticker/mobile` — `intent.py` (contenedores + reglas de audio), rama `CONVERT_PRESET` en planner, dispatch en executor (`_first_operation`/`_final_container`), `FFmpegProcessor.convert_preset` con autovalidación (validate + unlink), protocolos `MediaTool`/`MediaProcessor` ampliados; frontend: presets nuevos + `aria-label` + disclaimer WhatsApp; tests solo AGREGADOS (18 backend con ffmpeg real, 3 web + `Resolve.test.ts` nuevo), cero aserciones viejas tocadas.
+- Fix del modelo caro: E501 en `ffmpeg.py:141` (f-string del filtro sticker partida). Gates verdes: pytest 326 passed/3 skipped, pyright 0, ruff clean, pnpm lint/format/check/test/build verdes (22 vitest ext + 88 web). Total: 439 tests.
+- Nota de revisión: el planner también corrigió webm a VP9/Opus (antes libx264/aac en webm, no estándar); ningún test fijaba los códecs viejos. Commit `b4c10cf` + push.
+- Próxima fase: 14 (Advanced processing).
 
 ---
 
 ## HISTORIAL RELEVANTE (comprimido, detalle completo en session_log_archive.md)
 
-- `Sesión 12 — 2026-10-07` — Fase 12 (Batch + history + retention + output root + notificaciones); Reglas 12.1 (retention nunca toca `updated_at`), 12.2 (`response_model=None` con `Response`).
+- `Sesión 13 — 2026-10-07` — Sistema de gates para modelos baratos (`docs/TESTING.md`, contratos backend, suite web 85 Vitest, smoke e2e); 415 tests.
+- `Sesión 12 — 2026-10-07` — Fase 12 (Batch + history + retention + output root + notificaciones); Reglas 12.1, 12.2.
 - `Sesión 11 — 2026-10-06` — Cierre/verificación: fix pnpm 11 (`allowBuilds: { deno: true }`), CI 4/4 verde; Fase 11 evaluada (Native Messaging NO se implementa, se reevalúa en 16); sin browser real hasta Fase 16.
 - `Sesión 10 — 2026-10-06` — Fase 10: token, Host/Origin, bind loopback, SSRF guard, sanitización de filenames, rate limit; Reglas 10.1, 10.2, 10.3.
 - `Sesión 9 — 2026-10-06` — Fase 9: extensión MV3, handoff `?url=`, health Connected/Offline; Regla 9.1.

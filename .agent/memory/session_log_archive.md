@@ -6,6 +6,14 @@
 
 ## Archivo de sesiones
 
+### Sesión 13 — 2026-10-07 — opencode/muse-spark vía OpenCode (PowerShell/Windows)
+
+- Sistema de gates para modelos baratos: nuevo `docs/TESTING.md` (orden de gates, política STOP con HANDOFF, matriz fases 13-17, pitfalls); regla 11 en IMPLEMENTATION_PLAN; §24 de TECHNICAL_SPEC apunta a TESTING.md; README suma el puntero. Sin commit todavía.
+- **Backend:** `tests/test_contracts.py` (13 tests: todo ErrorCode con status explícito, key sets exactos de cada DTO, envelope único de errores; fixture con NoopExecutor para que el scheduler no toque red) + `tests/test_smoke_e2e.py` (`-m smoke`: servidor real Granian en puerto fresco + data dir temporal, handoff de token por shell/cookie, matriz de status, batch por-ítem, persistencia tras reinicio con mismo token); marker `smoke` registrado en pyproject. Hallazgo: la sonda 413 envenena el keep-alive (va última, con cliente fresco).
+- **Frontend:** suite Vitest nueva en `apps/web` (85 tests: `format/presets/api/live/notify`, Zod `.strict()` en `tests/schemas.ts` — devDependency, no va al bundle — y componentes `JobCard`/`Batch`); `test` script + `resolve.conditions: ['browser']` en vite.config (sin eso `mount()` falla con lifecycle_function_unavailable); `tests/**` entra a tsconfig.app para svelte-check. `pnpm -r test` ya la incluye en CI sin cambios.
+- **Gates:** pytest 308 passed/3 skipped, pyright 0, ruff check+format clean, pnpm lint/format:check/check/test/build verdes (22 vitest ext + 85 web). Total: 415 tests (412 run + 3 live opt-in).
+- Observación nueva en `observations.md`: batch de 100 URLs largas (~225 KB) superaría el límite 64 KiB → 413 legítimo pero extremo; monitorear cuando crezcan los intents (Fase 13/14).
+
 ### Sesión 12 — 2026-10-07 — opencode/muse-spark vía OpenCode (PowerShell/Windows)
 
 - Fase 12 (Batch + history) implementada completa, backend + web. Sin commit todavía (pendiente decisión del usuario).

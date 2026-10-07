@@ -21,7 +21,7 @@
 - [x] **Fase 10** — Security hardening (loopback-only bind, token local, Origin/Host validation, allowlist de protocolo, límites de request, rate limit en resolve, output path + sanitización de filenames, redacción de secretos) — ver `session_log.md` Sesión 10
 - [x] **Fase 11** — Native Messaging: **evaluada, NO se implementa** (veredicto en Sesión 11). El gate de `IMPLEMENTATION_PLAN.md` no puede cerrarse antes de Fase 16: el MVP localhost funciona, pero "instalación/distribución" solo se entiende cuando exista el paquete instalable. Se reevalúa en Fase 16.
 - [x] **Fase 12** — Batch + history (multi-URL, historia paginada, retry manual, duplicados por URL normalizada+intent, prioridad reasignable, retention/cleanup, output root con reglas, notificaciones desktop vía dashboard, bandwidth reservado) — ver `session_log.md` Sesión 12
-- [ ] **Fase 13** — Media presets (Video, Audio, MP3, MP4, WebM, GIF, WebP, No audio, Mobile, WhatsApp sticker)
+- [x] **Fase 13** — Media presets (Video, Audio, MP3, MP4, WebM, GIF, WebP, No audio, Mobile, WhatsApp sticker) — ver `session_log.md` Sesión 14
 - [ ] **Fase 14** — Advanced processing (trim, crop, resize, bitrate, framerate, subtítulos, metadata)
 - [ ] **Fase 15** — Performance engineering (medir startup, memoria, CPU, throughput, latencia)
 - [ ] **Fase 16** — Packaging (Windows primero: PyInstaller onedir → Inno Setup, binarios bundled pineados, THIRD_PARTY_NOTICES)
