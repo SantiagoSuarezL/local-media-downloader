@@ -87,6 +87,72 @@ class FFmpegProcessor:
             timeout=timeout,
         )
 
+    def transcode_trimmed(
+        self,
+        source: Path,
+        destination: Path,
+        *,
+        start: float,
+        end: float,
+        video_codec: str = "libx264",
+        audio_codec: str = "aac",
+        timeout: float = DEFAULT_TIMEOUT,
+    ) -> Path:
+        """Re-encode only the ``[start, end)`` window (accurate cut, never stream copy)."""
+        result = self._run(
+            source,
+            destination,
+            [
+                *_trim_args(start, end),
+                "-c:v",
+                video_codec,
+                *(
+                    ["-deadline", "good", "-cpu-used", "4"]
+                    if video_codec == "libvpx-vp9"
+                    else ["-preset", "veryfast"]
+                ),
+                *(["-an"] if audio_codec == "none" else ["-c:a", audio_codec]),
+            ],
+            timeout=timeout,
+        )
+        return self._check_trimmed(result, start, end)
+
+    def extract_audio_trimmed(
+        self,
+        source: Path,
+        destination: Path,
+        *,
+        start: float,
+        end: float,
+        codec: str = "libmp3lame",
+        bitrate: str = "192k",
+        timeout: float = DEFAULT_TIMEOUT,
+    ) -> Path:
+        """Extract the ``[start, end)`` window of the audio track."""
+        result = self._run(
+            source,
+            destination,
+            [*_trim_args(start, end), "-vn", "-c:a", codec, "-b:a", bitrate],
+            timeout=timeout,
+        )
+        return self._check_trimmed(result, start, end)
+
+    def _check_trimmed(self, result: Path, start: float, end: float) -> Path:
+        try:
+            probe = self.validate(result)
+        except ExtractionError:
+            result.unlink(missing_ok=True)
+            raise
+        duration = probe.duration_seconds
+        if duration is not None and duration > (end - start) + 1.0:
+            result.unlink(missing_ok=True)
+            raise ExtractionError(
+                ErrorCode.VALIDATION_FAILED,
+                "Trimmed output is longer than the requested range.",
+                retryable=False,
+            )
+        return result
+
     def extract_audio(
         self,
         source: Path,
@@ -277,5 +343,13 @@ class FFmpegProcessor:
                 detail=completed.stderr.strip() or f"exit {completed.returncode}",
                 retryable=False,
             )
-        self.validate(destination, timeout=30.0)
+        try:
+            self.validate(destination, timeout=30.0)
+        except ExtractionError:
+            destination.unlink(missing_ok=True)
+            raise
         return destination
+
+
+def _trim_args(start: float, end: float) -> list[str]:
+    return ["-ss", f"{start:.3f}", "-t", f"{end - start:.3f}"]

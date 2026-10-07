@@ -18,7 +18,7 @@ import shutil
 import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from .. import jobs
 from ..adapters.ffmpeg import FFmpegProcessor
@@ -68,6 +68,35 @@ class MediaTool(Protocol):
     def video_only(self, source: Path, destination: Path, *, timeout: float = ...) -> Path: ...
 
     def validate(self, path: Path, *, timeout: float = ...) -> object: ...
+
+
+@runtime_checkable
+class TrimTool(Protocol):
+    """Optional capability: accurate time-window cuts (checked, never assumed)."""
+
+    def transcode_trimmed(
+        self,
+        source: Path,
+        destination: Path,
+        *,
+        start: float,
+        end: float,
+        video_codec: str = ...,
+        audio_codec: str = ...,
+        timeout: float = ...,
+    ) -> Path: ...
+
+    def extract_audio_trimmed(
+        self,
+        source: Path,
+        destination: Path,
+        *,
+        start: float,
+        end: float,
+        codec: str = ...,
+        bitrate: str = ...,
+        timeout: float = ...,
+    ) -> Path: ...
 
 
 class Downloader(Protocol):
@@ -221,6 +250,9 @@ class DefaultExecutor:
         if cancel.is_set():
             raise JobCancelled()
         kind, _tool, detail = operation
+        if "trim_start" in detail and kind in {"TRANSCODE", "EXTRACT_AUDIO"}:
+            self._process_trimmed(kind, detail, source, target)
+            return
         if kind == "REMUX":
             self._processor.remux(source, target)
         elif kind == "TRANSCODE":
@@ -241,6 +273,34 @@ class DefaultExecutor:
         else:  # pragma: no cover — guarded by _first_operation
             raise ExtractionError(
                 ErrorCode.UNSUPPORTED_INTENT, f"unknown processing step {kind}", retryable=False
+            )
+
+    def _process_trimmed(
+        self, kind: str, detail: dict[str, str], source: Path, target: Path
+    ) -> None:
+        processor = self._processor
+        if not isinstance(processor, TrimTool):
+            raise ExtractionError(
+                ErrorCode.UNSUPPORTED_INTENT,
+                "The media processor does not support trimming.",
+                retryable=False,
+            )
+        start = float(detail["trim_start"])
+        end = float(detail["trim_end"])
+        if kind == "TRANSCODE":
+            processor.transcode_trimmed(
+                source,
+                target,
+                start=start,
+                end=end,
+                video_codec=detail.get("video_codec", "libx264"),
+                audio_codec=detail.get(
+                    "audio_codec", "none" if detail.get("audio") == "none" else "aac"
+                ),
+            )
+        else:
+            processor.extract_audio_trimmed(
+                source, target, start=start, end=end, codec=detail.get("codec", "libmp3lame")
             )
 
     def _publish_state(self, job_id: str, state: JobState, *, stage: str) -> None:

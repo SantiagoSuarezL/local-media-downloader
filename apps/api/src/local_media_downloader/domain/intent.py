@@ -8,6 +8,7 @@ rejected on deserialization.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
@@ -23,6 +24,9 @@ _CONTAINERS = _VIDEO_CONTAINERS + _AUDIO_CONTAINERS
 
 _ALLOWED_KEYS = {"media", "quality", "container", "audio", "video_codec", "processing"}
 _PROCESSING_KEYS = {"resize", "trim"}
+_PLAIN_SECONDS = re.compile(r"\d{1,5}(?:\.\d{1,3})?")
+_CLOCK = re.compile(r"(?:(\d{1,2}):)?([0-5]?\d):([0-5]?\d(?:\.\d{1,3})?)")
+_MAX_TRIM_SECONDS = 86_400.0
 
 
 class MediaChoice(StrEnum):
@@ -110,6 +114,8 @@ def parse_intent(payload: Any) -> OutputIntent:
         raise _bad("processing.resize must be a string like '720p'")
     if trim is not None and not isinstance(trim, str):
         raise _bad("processing.trim must be a string like '00:10-00:20'")
+    if trim is not None:
+        parse_trim(trim)
     media = MediaChoice(media_raw)
     audio = AudioChoice(audio_raw)
     detected = _classify_container(container)
@@ -133,6 +139,35 @@ def parse_intent(payload: Any) -> OutputIntent:
         video_codec=video_codec,
         processing=Processing(resize=resize, trim=trim),
     )
+
+
+def parse_trim(value: str) -> tuple[float, float]:
+    """Parse ``START-END`` into ``(start, end)`` seconds.
+
+    Each bound is ``MM:SS``, ``HH:MM:SS`` (optionally with ``.mmm``) or plain
+    seconds. Nothing but numbers ever reaches the tool argv.
+    """
+    parts = value.strip().split("-")
+    if len(parts) != 2:
+        raise _bad("processing.trim must look like '00:10-00:20'")
+    start = _parse_timestamp(parts[0])
+    end = _parse_timestamp(parts[1])
+    if end <= start:
+        raise _bad("processing.trim end must be after start")
+    if end - start > _MAX_TRIM_SECONDS:
+        raise _bad("processing.trim range is too long")
+    return start, end
+
+
+def _parse_timestamp(raw: str) -> float:
+    text = raw.strip()
+    if _PLAIN_SECONDS.fullmatch(text):
+        return float(text)
+    clock = _CLOCK.fullmatch(text)
+    if clock is None:
+        raise _bad("processing.trim bounds must be seconds, MM:SS or HH:MM:SS")
+    hours, minutes, seconds = clock.group(1), clock.group(2), clock.group(3)
+    return int(hours or 0) * 3600 + int(minutes) * 60 + float(seconds)
 
 
 def _classify_container(container: str) -> str:
