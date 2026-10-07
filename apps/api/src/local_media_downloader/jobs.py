@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from .db import transaction
-from .job_state import ACTIVE_STATES, JobState, assert_transition
+from .job_state import ACTIVE_STATES, TERMINAL_STATES, JobState, assert_transition
 
 
 def _now() -> str:
@@ -60,6 +60,7 @@ class Job:
     output_path: str | None
     created_by: str | None
     priority: int
+    dedupe_key: str | None = None
     intent_json: str | None = None
     execution_plan_json: str | None = None
 
@@ -84,6 +85,7 @@ class Job:
             output_path=row["output_path"],
             created_by=row["created_by"],
             priority=row["priority"],
+            dedupe_key=row["dedupe_key"],
             intent_json=row["intent_json"],
             execution_plan_json=row["execution_plan_json"],
         )
@@ -96,6 +98,7 @@ def create_job(
     created_by: str = "ui",
     title: str | None = None,
     priority: int = 0,
+    dedupe_key: str | None = None,
     intent_json: str | None = None,
     execution_plan_json: str | None = None,
     state: JobState = JobState.CREATED,
@@ -106,8 +109,9 @@ def create_job(
         conn.execute(
             """
             INSERT INTO jobs (id, created_at, updated_at, state, source_url, source_url_hash,
-                              title, created_by, priority, intent_json, execution_plan_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                              title, created_by, priority, dedupe_key, intent_json,
+                              execution_plan_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job_id,
@@ -119,6 +123,7 @@ def create_job(
                 title,
                 created_by,
                 priority,
+                dedupe_key,
                 intent_json,
                 execution_plan_json,
             ),
@@ -267,6 +272,110 @@ def find_active_jobs(conn: sqlite3.Connection) -> list[Job]:
     subsystem reconciles them; the repository only reports them (ARCHITECTURE §5).
     """
     return list_jobs(conn, states=set(ACTIVE_STATES))
+
+
+# States that make a job a duplicate candidate: anything not terminal. A
+# COMPLETED job with the same URL+intent is a *different* request (the user may
+# want it again), and a FAILED/CANCELLED one is already retryable on its own.
+_DEDUPE_ACTIVE = (
+    f"state NOT IN ({','.join('?' for _ in TERMINAL_STATES)})",
+    tuple(state.value for state in TERMINAL_STATES),
+)
+
+
+def find_duplicate(conn: sqlite3.Connection, dedupe_key: str) -> Job | None:
+    """Return the non-terminal job sharing ``dedupe_key``, if any.
+
+    The dedupe key covers normalized URL + intent, so this is the whole
+    duplicate rule (PRD "Data retention and deduplication"): same media, same
+    output, still in flight or queued.
+    """
+    where, params = _DEDUPE_ACTIVE
+    row = conn.execute(
+        f"SELECT * FROM jobs WHERE dedupe_key = ? AND {where} ORDER BY created_at LIMIT 1",
+        (dedupe_key, *params),
+    ).fetchone()
+    return Job.from_row(row) if row else None
+
+
+def clear_source_url(conn: sqlite3.Connection, job_id: str) -> None:
+    """Drop the stored URL, keeping its hash (Phase 12 retention policy).
+
+    The hash is what duplicate detection and audit need; the URL itself is
+    dropped once a job is terminal and old enough, so a database backup stops
+    containing every link the user ever downloaded.
+
+    ``updated_at`` is deliberately not bumped: this is maintenance, not a state
+    transition, and bumping it would make the job look "recent" to the history
+    cleanup that runs in the same sweep.
+    """
+    with transaction(conn):
+        conn.execute(
+            "UPDATE jobs SET source_url = NULL WHERE id = ?",
+            (job_id,),
+        )
+        _record_event(conn, job_id, "SOURCE_URL_REDACTED", {})
+
+
+def delete_job(conn: sqlite3.Connection, job_id: str) -> bool:
+    """Delete a job row and its audit events. Returns whether it existed.
+
+    Only the row goes: the caller owns the filesystem artifacts, because a
+    completed job's output file is the user's media and must never be deleted
+    by a history cleanup.
+    """
+    with transaction(conn):
+        cursor = conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+        return cursor.rowcount > 0
+
+
+def list_terminal_older_than(conn: sqlite3.Connection, before: str) -> list[Job]:
+    """Terminal jobs whose last state change predates ``before`` (ISO string)."""
+    placeholders = ",".join("?" for _ in TERMINAL_STATES)
+    rows = conn.execute(
+        f"SELECT * FROM jobs WHERE state IN ({placeholders}) AND updated_at < ? "
+        "ORDER BY updated_at",
+        (*[state.value for state in TERMINAL_STATES], before),
+    ).fetchall()
+    return [Job.from_row(row) for row in rows]
+
+
+def set_priority(conn: sqlite3.Connection, job_id: str, priority: int) -> Job:
+    """Change a job's queue priority (higher preempts lower in the queue)."""
+    with transaction(conn):
+        conn.execute(
+            "UPDATE jobs SET priority = ?, updated_at = ? WHERE id = ?",
+            (priority, _now(), job_id),
+        )
+        _record_event(conn, job_id, "PRIORITY_CHANGED", {"priority": priority})
+    job = get_job(conn, job_id)
+    if job is None:  # pragma: no cover — update just happened
+        raise KeyError(job_id)
+    return job
+
+
+def reset_for_retry(conn: sqlite3.Connection, job_id: str) -> Job:
+    """Clear the failure record and the attempt budget so a retry starts fresh.
+
+    A manual retry is a new decision by the user, not another automatic attempt:
+    without resetting ``attempt_count`` a job that exhausted the budget could
+    never be retried by hand.
+    """
+    with transaction(conn):
+        conn.execute(
+            """
+            UPDATE jobs
+               SET attempt_count = 0, error_code = NULL, error_message = NULL,
+                   progress = 0, updated_at = ?
+             WHERE id = ?
+            """,
+            (_now(), job_id),
+        )
+        _record_event(conn, job_id, "RETRY_REQUESTED", {})
+    job = get_job(conn, job_id)
+    if job is None:  # pragma: no cover — update just happened
+        raise KeyError(job_id)
+    return job
 
 
 def get_events(conn: sqlite3.Connection, job_id: str) -> list[sqlite3.Row]:

@@ -13,14 +13,14 @@ import logging
 import sqlite3
 import time
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import __version__, jobs
@@ -29,9 +29,11 @@ from .adapters.yt_dlp import YtDlpExtractor
 from .config import Settings
 from .db import initialize, schema_version
 from .diagnostics import detect_tools, storage_ready
+from .domain.dedupe import dedupe_key
 from .domain.errors import ExtractionError
 from .domain.extractor import Extractor
 from .domain.intent import parse_intent
+from .domain.output import OutputRule
 from .job_state import JobState
 from .logging_config import configure_logging, get_logger
 from .security import (
@@ -42,12 +44,14 @@ from .security import (
     validate_host,
     validate_origin,
 )
+from .services.batch import BatchItem, submit_batch
 from .services.events import EventBus
 from .services.executor import DefaultExecutor
 from .services.planner import Planner
 from .services.rate_limit import RateLimiter, per_minute_limiter
 from .services.recovery import recover_interrupted_jobs
 from .services.resolve import ResolveService, error_response
+from .services.retention import retention_sweep_loop, run_retention
 from .services.scheduler import ExecutorProtocol, Scheduler, SchedulerLimits
 
 _ERROR_NOT_FOUND = "NOT_FOUND"
@@ -89,6 +93,34 @@ class JobRequest(BaseModel):
     priority: int = 0
 
 
+class BatchJobItem(BaseModel):
+    url: str = Field(min_length=1, max_length=2048)
+    intent: dict[str, object]
+    title: str | None = None
+    priority: int = 0
+
+
+class BatchRequest(BaseModel):
+    items: list[BatchJobItem] = Field(min_length=1, max_length=100)
+
+
+class PriorityRequest(BaseModel):
+    priority: int = Field(ge=-100, le=100)
+
+
+class SettingsUpdate(BaseModel):
+    """Runtime-tunable settings. Only these keys are writable; everything else
+    (host, port, scheduler budgets, output root) is boot configuration."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_url_retention: str | None = None
+    history_retention_days: int | None = None
+    temporary_retention_hours: int | None = None
+    output_rule: str | None = None
+    bandwidth_limit_bps: int | None = None
+
+
 def _job_dict(job: jobs.Job) -> dict[str, object]:
     return {
         "id": job.id,
@@ -105,6 +137,34 @@ def _job_dict(job: jobs.Job) -> dict[str, object]:
         "priority": job.priority,
         "attempt_count": job.attempt_count,
     }
+
+
+def _encode_cursor(job: jobs.Job) -> str:
+    """Opaque cursor for the last row of a page (base64url of the sort key)."""
+    import base64
+
+    payload = json.dumps(
+        {"priority": job.priority, "created_at": job.created_at, "id": job.id},
+        separators=(",", ":"),
+    )
+    return base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii").rstrip("=")
+
+
+def _decode_cursor(raw: str | None) -> jobs.JobCursor | None:
+    if not raw:
+        return None
+    import base64
+
+    try:
+        padding = "=" * (-len(raw) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(raw + padding).decode("utf-8"))
+        return jobs.JobCursor(
+            priority=int(payload["priority"]),
+            created_at=str(payload["created_at"]),
+            id=str(payload["id"]),
+        )
+    except (ValueError, KeyError, TypeError):
+        raise ValueError("invalid cursor") from None
 
 
 def _error_payload(code: str, message: str) -> dict[str, object]:
@@ -259,6 +319,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+        application.state.settings = settings
         application.state.db = initialize(settings.database_path)
         logger.info(
             "database_ready", extra={"schema_version": schema_version(application.state.db)}
@@ -285,6 +346,25 @@ def create_app(
         )
         if report.actions:
             logger.info("recovery_reconciled", extra={"jobs": len(report.actions)})
+        retention_report = run_retention(
+            application.state.db,
+            data_dir=settings.data_dir,
+            policy=settings.retention_policy,
+            bus=bus,
+        )
+        if (
+            retention_report.urls_redacted
+            or retention_report.jobs_deleted
+            or retention_report.directories_deleted
+        ):
+            logger.info(
+                "retention_sweep",
+                extra={
+                    "urls_redacted": retention_report.urls_redacted,
+                    "jobs_deleted": retention_report.jobs_deleted,
+                    "directories_deleted": retention_report.directories_deleted,
+                },
+            )
         if executor_factory is not None:
             executor = executor_factory()
         else:
@@ -295,6 +375,8 @@ def create_app(
                 bus=bus,
                 download_sem=asyncio.Semaphore(limits.max_downloads),
                 encode_sem=asyncio.Semaphore(limits.max_encoders),
+                output_root=settings.output_root,
+                output_rule=settings.output_rule,
             )
         scheduler = Scheduler(
             application.state.db,
@@ -306,9 +388,21 @@ def create_app(
         application.state.bus = bus
         application.state.scheduler = scheduler
         scheduler.start()
+        retention_task = asyncio.create_task(
+            retention_sweep_loop(
+                application.state.db,
+                data_dir=settings.data_dir,
+                policy=settings.retention_policy,
+                bus=bus,
+            ),
+            name="retention-sweep",
+        )
         try:
             yield
         finally:
+            retention_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await retention_task
             await scheduler.stop()
             application.state.db.close()
 
@@ -465,15 +559,26 @@ def create_app(
 
     @app.post("/api/v1/jobs", status_code=201)
     async def create_job_endpoint(payload: JobRequest, request: Request) -> JSONResponse:
-        """Validate intent, resolve the URL, plan, and enqueue a job."""
+        """Validate intent, resolve the URL, plan, and enqueue a job.
+
+        Same normalized URL + same intent + still in flight means the job
+        already exists: return it (200) instead of queueing a second download.
+        """
         try:
             intent = parse_intent(payload.intent)
         except ExtractionError as error:
             status, body = error_response(error)
             return JSONResponse(status_code=status, content=body)
+        key = dedupe_key(payload.url, payload.intent)
+        duplicate = jobs.find_duplicate(request.app.state.db, key)
+        if duplicate is not None:
+            return JSONResponse(
+                status_code=200, content={**_job_dict(duplicate), "duplicate": True}
+            )
         try:
             service = ResolveService(make_extractor())
-            info = service.resolve(payload.url)
+            # The extractor blocks on a subprocess; keep it off the event loop.
+            info = await asyncio.to_thread(service.resolve, payload.url)
             plan = Planner().plan(intent, info)
         except ExtractionError as error:
             status, body = error_response(error)
@@ -483,6 +588,7 @@ def create_app(
             source_url=payload.url,
             title=payload.title or info.source.title,
             priority=payload.priority,
+            dedupe_key=key,
             intent_json=json.dumps(payload.intent),
             execution_plan_json=json.dumps(plan.as_dict()),
             state=JobState.QUEUED,
@@ -493,10 +599,38 @@ def create_app(
         assert job is not None
         return JSONResponse(status_code=201, content=_job_dict(job))
 
-    @app.get("/api/v1/jobs")
-    def list_jobs(request: Request) -> dict[str, object]:
-        found = jobs.list_jobs(request.app.state.db)
-        return {"jobs": [_job_dict(job) for job in found]}
+    @app.get("/api/v1/jobs", response_model=None)
+    def list_jobs(request: Request) -> dict[str, object] | JSONResponse:
+        """List jobs newest-first by priority, with keyset pagination.
+
+        Query params: ``limit`` (1-500, default 100), ``cursor`` (opaque,
+        from a previous response's ``next_cursor``), ``states`` (comma-separated
+        JobState values, e.g. ``QUEUED,RETRY_WAIT``).
+        """
+        limit = int(request.query_params.get("limit", 100))
+        states_param = request.query_params.get("states")
+        states: set[JobState] | None = None
+        if states_param:
+            try:
+                states = {JobState(s.strip()) for s in states_param.split(",") if s.strip()}
+            except ValueError as exc:
+                return JSONResponse(
+                    status_code=422,
+                    content=_error_payload(_ERROR_VALIDATION, f"invalid states filter: {exc}"),
+                )
+        try:
+            cursor = _decode_cursor(request.query_params.get("cursor"))
+        except ValueError as exc:
+            return JSONResponse(
+                status_code=422,
+                content=_error_payload(_ERROR_VALIDATION, str(exc)),
+            )
+        found = jobs.list_jobs(request.app.state.db, states=states, limit=limit, cursor=cursor)
+        next_cursor = _encode_cursor(found[-1]) if len(found) == limit else None
+        return {
+            "jobs": [_job_dict(job) for job in found],
+            "next_cursor": next_cursor,
+        }
 
     @app.get("/api/v1/jobs/{job_id}")
     def get_job(job_id: str, request: Request) -> JSONResponse:
@@ -522,26 +656,174 @@ def create_app(
         assert job is not None
         return JSONResponse(status_code=200, content=_job_dict(job))
 
-    @app.get("/api/v1/settings")
-    def get_settings() -> dict[str, object]:
-        """Runtime configuration, read-only.
+    @app.post("/api/v1/jobs/batch", status_code=201)
+    async def create_batch_endpoint(payload: BatchRequest, request: Request) -> JSONResponse:
+        """Submit many URLs at once; each becomes an independent job.
 
-        Configuration comes from the environment at boot, so the API reports it
-        but never mutates it: changing anything requires a restart. Nothing
-        secret is exposed — only loopback/service values.
+        One bad URL does not fail the batch: every item reports its own outcome
+        (created / duplicate / error) in input order.
         """
+        items = [
+            BatchItem(url=item.url, intent=item.intent, title=item.title, priority=item.priority)
+            for item in payload.items
+        ]
+        results = await submit_batch(
+            request.app.state.db,
+            items=items,
+            extractor=make_extractor(),
+            planner=Planner(),
+            resolve=ResolveService(make_extractor()),
+            limiter=request.app.state.resolve_limiter,
+            bus=request.app.state.bus,
+            client=request.client.host if request.client else "local",
+        )
+        scheduler: Scheduler = request.app.state.scheduler
+        scheduler.wake()
+        return JSONResponse(
+            status_code=201,
+            content={"results": [result.as_dict() for result in results]},
+        )
+
+    @app.post("/api/v1/jobs/{job_id}/retry")
+    def retry_job(job_id: str, request: Request) -> JSONResponse:
+        """Re-queue a failed, cancelled or recovery-required job.
+
+        The attempt budget is reset: a manual retry is a new decision, not
+        another automatic attempt.
+        """
+        job = jobs.get_job(request.app.state.db, job_id)
+        if job is None:
+            return JSONResponse(
+                status_code=404, content=_error_payload(_ERROR_NOT_FOUND, "job not found")
+            )
+        if job.source_url is None:
+            return JSONResponse(
+                status_code=409,
+                content=_error_payload(
+                    "SOURCE_URL_REDACTED",
+                    "This job's source URL was removed by the retention policy; "
+                    "it cannot be retried.",
+                ),
+            )
+        if job.state not in {JobState.FAILED, JobState.CANCELLED, JobState.RECOVERY_REQUIRED}:
+            return JSONResponse(
+                status_code=409,
+                content=_error_payload(
+                    "CONFLICT", f"job {job_id} is not retryable from {job.state.value}"
+                ),
+            )
+        try:
+            jobs.reset_for_retry(request.app.state.db, job_id)
+            jobs.transition(request.app.state.db, job_id, JobState.RETRY_WAIT)
+        except Exception as exc:
+            return JSONResponse(status_code=409, content=_error_payload("CONFLICT", str(exc)))
+        scheduler: Scheduler = request.app.state.scheduler
+        scheduler.wake()
+        job = jobs.get_job(request.app.state.db, job_id)
+        assert job is not None
+        return JSONResponse(status_code=200, content=_job_dict(job))
+
+    @app.post("/api/v1/jobs/{job_id}/priority")
+    def set_job_priority(job_id: str, payload: PriorityRequest, request: Request) -> JSONResponse:
+        """Change a job's queue priority; higher preempts lower."""
+        if jobs.get_job(request.app.state.db, job_id) is None:
+            return JSONResponse(
+                status_code=404, content=_error_payload(_ERROR_NOT_FOUND, "job not found")
+            )
+        job = jobs.set_priority(request.app.state.db, job_id, payload.priority)
+        request.app.state.scheduler.wake()
+        return JSONResponse(status_code=200, content=_job_dict(job))
+
+    @app.post("/api/v1/maintenance/cleanup")
+    def run_cleanup(request: Request) -> JSONResponse:
+        """Run the retention sweep now and report what it did."""
+        report = run_retention(
+            request.app.state.db,
+            data_dir=request.app.state.settings.data_dir,
+            policy=request.app.state.settings.retention_policy,
+            bus=request.app.state.bus,
+        )
+        return JSONResponse(
+            status_code=200,
+            content={
+                "urls_redacted": report.urls_redacted,
+                "jobs_deleted": report.jobs_deleted,
+                "directories_deleted": report.directories_deleted,
+                "errors": report.errors,
+            },
+        )
+
+    @app.get("/api/v1/settings")
+    def get_settings(request: Request) -> dict[str, object]:
+        """Runtime configuration.
+
+        Boot configuration (host, port, scheduler budgets, output root) is
+        reported read-only. Retention and bandwidth are tunable at runtime via
+        ``PATCH /api/v1/settings``. Nothing secret is exposed.
+        """
+        current = request.app.state.settings
         return {
-            "host": settings.host,
-            "port": settings.port,
-            "log_level": settings.log_level,
-            "data_dir": str(settings.data_dir),
-            "database_path": str(settings.database_path),
-            "scheduler_max_active": settings.scheduler_max_active,
-            "scheduler_max_downloads": settings.scheduler_max_downloads,
-            "scheduler_max_encoders": settings.scheduler_max_encoders,
-            "scheduler_max_attempts": settings.scheduler_max_attempts,
-            "scheduler_retry_backoff_seconds": settings.scheduler_retry_backoff_seconds,
+            "host": current.host,
+            "port": current.port,
+            "log_level": current.log_level,
+            "data_dir": str(current.data_dir),
+            "database_path": str(current.database_path),
+            "scheduler_max_active": current.scheduler_max_active,
+            "scheduler_max_downloads": current.scheduler_max_downloads,
+            "scheduler_max_encoders": current.scheduler_max_encoders,
+            "scheduler_max_attempts": current.scheduler_max_attempts,
+            "scheduler_retry_backoff_seconds": current.scheduler_retry_backoff_seconds,
+            "output_root": str(current.output_root),
+            "output_rule": current.output_rule.value,
+            "source_url_retention": current.source_url_retention,
+            "history_retention_days": current.history_retention_days,
+            "temporary_retention_hours": current.temporary_retention_hours,
+            "bandwidth_limit_bps": current.bandwidth_limit_bps,
         }
+
+    @app.patch("/api/v1/settings")
+    def update_settings(payload: SettingsUpdate, request: Request) -> JSONResponse:
+        """Update runtime-tunable settings (retention, bandwidth).
+
+        Only the keys in :class:`SettingsUpdate` are writable; anything else is
+        boot configuration and requires a restart.
+        """
+        import dataclasses
+
+        current = request.app.state.settings
+        updates = payload.model_dump(exclude_unset=True)
+        if "source_url_retention" in updates:
+            from .services.retention import URL_RETENTION_OPTIONS
+
+            if updates["source_url_retention"] not in URL_RETENTION_OPTIONS:
+                return JSONResponse(
+                    status_code=422,
+                    content=_error_payload(
+                        _ERROR_VALIDATION,
+                        f"source_url_retention must be one of {URL_RETENTION_OPTIONS}",
+                    ),
+                )
+        if "output_rule" in updates:
+            try:
+                OutputRule(updates["output_rule"])
+            except ValueError:
+                return JSONResponse(
+                    status_code=422,
+                    content=_error_payload(
+                        _ERROR_VALIDATION,
+                        f"output_rule must be one of {[r.value for r in OutputRule]}",
+                    ),
+                )
+        try:
+            # dataclasses.replace runs __post_init__, which validates the policy.
+            updated = dataclasses.replace(current, **updates)
+        except (ValueError, TypeError) as exc:
+            return JSONResponse(
+                status_code=422, content=_error_payload(_ERROR_VALIDATION, str(exc))
+            )
+        request.app.state.settings = updated
+        logger.info("settings_updated", extra={"keys": sorted(updates)})
+        return JSONResponse(status_code=200, content=get_settings(request))
 
     @app.post("/api/v1/resolve")
     async def resolve(payload: ResolveRequest, request: Request) -> JSONResponse:

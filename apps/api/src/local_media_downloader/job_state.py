@@ -111,7 +111,11 @@ _TRANSITIONS: dict[JobState, frozenset[JobState]] = {
     ),
     JobState.COMPLETED: frozenset(),
     JobState.FAILED: frozenset({JobState.RETRY_WAIT}),
-    JobState.CANCELLED: frozenset(),
+    # A manual retry is allowed from CANCELLED: cancelling is easy to do by
+    # accident, and the job never produced output, so re-queueing it loses
+    # nothing. COMPLETED stays terminal — re-running a finished job is a new
+    # request, not a retry.
+    JobState.CANCELLED: frozenset({JobState.RETRY_WAIT}),
 }
 
 

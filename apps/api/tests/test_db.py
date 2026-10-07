@@ -56,6 +56,40 @@ def test_migration_versions_are_unique_and_ordered() -> None:
     assert versions[0] == 1
 
 
+def test_v2_database_upgrades_to_v3_with_old_rows_intact(tmp_path) -> None:
+    """Phase 12: pre-migration rows survive and read back with a NULL key."""
+    from local_media_downloader.jobs import find_duplicate, get_job
+
+    raw = sqlite3.connect(tmp_path / "old.db")
+    try:
+        for target, _desc, sql in MIGRATIONS:
+            if target > 2:
+                break
+            raw.executescript(sql)
+            raw.execute(f"PRAGMA user_version = {target}")
+            raw.commit()
+        raw.execute(
+            "INSERT INTO jobs (id, created_at, updated_at, state, source_url,"
+            " source_url_hash, title, created_by, priority)"
+            " VALUES ('old-1', 't', 't', 'COMPLETED', 'https://example.com/v', 'h',"
+            " 'Old', 'ui', 0)"
+        )
+        raw.commit()
+    finally:
+        raw.close()
+
+    conn = initialize(tmp_path / "old.db")
+    try:
+        assert schema_version(conn) == 3
+        old = get_job(conn, "old-1")
+        assert old is not None
+        assert old.dedupe_key is None
+        # Old rows carry no key, so they never match a duplicate lookup.
+        assert find_duplicate(conn, "whatever") is None
+    finally:
+        conn.close()
+
+
 def test_fresh_database_starts_at_version_zero(tmp_path) -> None:
     conn = sqlite3.connect(tmp_path / "raw.db")
     try:

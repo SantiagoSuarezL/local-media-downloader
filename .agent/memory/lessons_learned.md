@@ -9,6 +9,7 @@
 
 ## Índice de reglas archivadas
 
+- 9.1 [Extensión / permisos]: host_permissions MV3 solo loopback — ver `lessons_learned_archive.md`.
 - 1.1 [Tooling / uv]: workspace members — ver `lessons_learned_archive.md`.
 - 1.2 [Git / reproducibilidad]: lockfiles se versionan — ver `lessons_learned_archive.md`.
 - 1.3 [Proceso / formateo]: formatear tras escribir — ver `lessons_learned_archive.md`.
@@ -21,16 +22,6 @@
 ---
 
 ## Reglas activas
-
-### Regla de Oro 9.1 [Extensión / permisos]: los host_permissions MV3 son solo loopback, sin IPv6 literal
-
-**Error:** el manifest declaraba `host_permissions: ["http://127.0.0.1/*", "http://localhost/*", "http://[::1]/*"]` para cubrir el servicio en cualquier loopback.
-
-**Root Cause:** los match patterns de Chrome no documentan ni aceptan IPv6 literal como host (documentan `localhost` y `127.0.0.1`); un host inválido hace que Chrome rechace el manifest completo y la extensión no cargue. El patrón `localhost/*` ya cubre el caso `::1` a nivel de resolución de nombres, así que el patrón extra no aportaba nada.
-
-**Solución:** `host_permissions` quedó en `["http://127.0.0.1/*", "http://localhost/*"]` y `tests/manifest.test.ts` falla si alguna vez se agrega un host fuera de loopback. La validación loopback del lado TS (`normalizeServiceUrl`) es independiente y sigue aceptando `::1` para Firefox, donde ese patrón sí es válido.
-
-**Regla de Oro:** *En una extensión que sólo habla con el servicio local, `host_permissions` se limita a `http://127.0.0.1/*` y `http://localhost/*` (nunca `<all_urls>`, nunca IPv6 literal) y esa lista se fija con un test; el least privilege se verifica, no se documenta.*
 
 ### Regla de Oro 10.1 [API / errores]: todo ErrorCode del dominio tiene estado HTTP, o el 500 miente
 
@@ -61,3 +52,23 @@
 **Solución:** `pnpm-workspace.yaml` usa `allowBuilds: { deno: true }` con comentario que explica la migración; verificado con un clon limpio (`git clone --depth 1` + `rm -rf node_modules` + los 5 pasos del job frontend) antes de pushear. Codemod oficial: `pnpx codemod run pnpm-v10-to-v11`.
 
 **Regla de Oro:** *Un `pnpm install` que pasa en tu máquina no prueba nada si los `node_modules` ya existían: reproducí los pasos de CI en un clon limpio antes de declarar verde cualquier job de JS. Y si cambiás de versión mayor de pnpm, los settings de build scripts se renombran — no se borran en silencio.*
+
+### Regla de Oro 12.1 [Retention / tiempo]: el mantenimiento nunca toca `updated_at`
+
+**Error:** `clear_source_url` actualizaba `updated_at` al redactar. Como el sweep corre redact-antes-que-borrado en la misma pasada, el job redactado pasaba a verse "recién modificado" y `list_terminal_older_than` ya no lo encontraba: `history_retention_days` nunca borraba nada que antes hubiera sido redactado. Lo cazó `test_retention_deletes_old_history_rows`.
+
+**Root Cause:** `updated_at` tiene dos lectores con semánticas distintas: la UI lo muestra como "última actividad" y retention lo usa como "edad para cleanup". Un write de mantenimiento satisface al primero y ciega al segundo.
+
+**Solución:** `clear_source_url` no toca `updated_at` (documentado en el docstring); la edad de un job terminal la define su última transición de estado, no la última pasada del sweep.
+
+**Regla de Oro:** *Si una columna se usa como reloj de retention, ningún write de mantenimiento puede modificarla: el mantenimiento que rejuvenece lo que limpia se auto-anula.*
+
+### Regla de Oro 12.2 [API / FastAPI]: un endpoint que devuelve `Response` no puede anotar `dict`
+
+**Error:** al agregar ramas de error `JSONResponse` a `GET /api/v1/jobs`, la anotación `-> dict[str, object] | JSONResponse` rompió el registro de rutas: FastAPI intenta construir un response model pydantic de la unión y `create_app()` explota en import (`FastAPIError: Invalid args for response field`), tumbando TODA la suite (4 archivos ni siquiera coleccionan).
+
+**Root Cause:** la anotación de retorno de un path operation no es solo typing: FastAPI la usa para generar el response model, y `Response` no es un field pydantic válido.
+
+**Solución:** `response_model=None` en el decorador cuando el endpoint puede devolver una `Response` cruda; pyright sigue verificando la unión en el cuerpo.
+
+**Regla de Oro:** *Si un endpoint devuelve `JSONResponse` en alguna rama, poné `response_model=None` en el decorador: sin eso, un cambio de anotación tumba el import de la app entera.*

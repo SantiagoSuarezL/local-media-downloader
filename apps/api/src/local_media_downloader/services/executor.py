@@ -25,7 +25,7 @@ from ..adapters.ffmpeg import FFmpegProcessor
 from ..adapters.progress import DownloadProgress
 from ..adapters.yt_dlp import YtDlpExtractor
 from ..domain.errors import ErrorCode, ExtractionError
-from ..domain.filenames import output_path_for
+from ..domain.output import OutputRule, build_output_path
 from ..domain.plan import ExecutionPlan
 from ..domain.progress import JobProgress
 from ..job_state import JobState
@@ -82,6 +82,8 @@ class DefaultExecutor:
         bus: EventBus,
         download_sem: asyncio.Semaphore,
         encode_sem: asyncio.Semaphore,
+        output_root: Path | None = None,
+        output_rule: OutputRule = OutputRule.FLAT,
     ) -> None:
         self._conn = conn
         self._extractor = extractor if extractor is not None else YtDlpExtractor()
@@ -90,6 +92,11 @@ class DefaultExecutor:
         self._bus = bus
         self._download_sem = download_sem
         self._encode_sem = encode_sem
+        # Final media lives in the output root, not in the job directory: the job
+        # directory holds temporary artifacts that retention may delete, while
+        # the file the user asked for must survive that.
+        self._output_root = output_root if output_root is not None else data_dir / "output"
+        self._output_rule = output_rule
 
     async def run(
         self,
@@ -145,13 +152,17 @@ class DefaultExecutor:
         jobs.transition(self._conn, job.id, JobState.COMMITTING, current_stage="committing")
         container = _final_container(plan) or work_file.suffix.lstrip(".") or "bin"
         # The title comes from remote metadata, so it is sanitized and the
-        # resulting path is proven to stay inside this job's output directory.
-        final = output_path_for(
-            output_dir,
-            job.title,
-            fallback=job.id,
+        # resulting path is proven to stay inside the output root.
+        final = build_output_path(
+            self._output_root,
+            rule=self._output_rule,
+            title=job.title,
             extension=container,
+            extractor=job.extractor,
+            created_at=job.created_at,
+            fallback=job.id,
         )
+        final.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(work_file), str(final))
         jobs.set_output_path(self._conn, job.id, str(final))
         return final

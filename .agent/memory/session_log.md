@@ -12,20 +12,24 @@
 
 ## ÚLTIMA SESIÓN (detalle completo)
 
-`Sesión 11 — 2026-10-06 — opencode/fledge-alpha-free vía OpenCode (PowerShell/Windows)`
+`Sesión 12 — 2026-10-07 — opencode/muse-spark vía OpenCode (PowerShell/Windows)`
 
-- Sesión de cierre/verificación (sin código de producto): `gh` CLI instalado vía scoop (2.102.0) + `gh auth login` hecho por el usuario → habilitó `gh run view --log-failed`, que antes daba 403 con la API pública.
-- **CI: el job `frontend` estaba en rojo desde el commit de Fase 3** (los dos OS) y nadie lo había notado; `backend` pasaba. Causa raíz: pnpm **11 eliminó** `onlyBuiltDependencies` y lo ignora en silencio, así que el install limpio en CI abortaba con `ERR_PNPM_IGNORED_BUILDS` (deno) y su postinstall nunca corría — el runtime JS de yt-dlp-ejs tampoco estaba instalado en máquinas limpias. Localmente todo pasaba porque `node_modules` ya tenía el binario de instalaciones viejas.
-- Fix: `pnpm-workspace.yaml` → `allowBuilds: { deno: true }`, verificado **antes** de pushear con un clon limpio (`git clone --depth 1`, borrar `node_modules`, correr los 5 pasos exactos del job frontend: install, lint, format:check, check, test, build). Commit `cbf8277`; CI quedó **4/4 verde** (run `37512262845`).
-- Commit `8666100` con las fases 7–10 pusheado (un solo commit porque `app.py` mezcla las cuatro fases).
-- **Fase 11 evaluada: NO se implementa Native Messaging.** El gate de `IMPLEMENTATION_PLAN.md` exige "instalación/distribución entendidas", y eso recién existe en Fase 16 (PyInstaller + Inno Setup). Además Native Messaging solo tiene sentido para builds instalados: el MVP localhost se comunica por HTTP loopback sin él. Se reevalúa en Fase 16.
-- **Decisión explícita del usuario: no probar la extensión en un browser real hasta Fase 16.** Los riesgos que eso deja abiertos quedaron escritos como observación en curso (popup/CSP MV3, cookie `SameSite=Strict` contra el SSE, detección Chrome/Firefox del bridge) con el checklist para Fase 16.
-- `roadmap.md` actualizado (Fase 11 como evaluada; corregida la referencia obsoleta a `onlyBuiltDependencies`; la nota de "docs/ sin trackear" ya no aplica porque `.agent/` está versionado).
+- Fase 12 (Batch + history) implementada completa, backend + web. Sin commit todavía (pendiente decisión del usuario).
+- **Dominio nuevo:** `domain/urls.py::normalize_url` (lowercase scheme/host, sin puerto default, sin fragment, sin tracking params, query ordenada); `domain/dedupe.py` (`intent_fingerprint` con JSON canonical + `dedupe_key = sha256(url_norm + intent)`); `domain/output.py` (reglas cerradas `flat`/`by_extractor`/`by_date`, sanitización por segmento, prueba de contención).
+- **Schema v3:** columna `dedupe_key` + `idx_jobs_dedupe` + `idx_jobs_updated_at`; test de upgrade v2→v3 en `test_db.py` (filas viejas leen con key NULL y nunca matchean).
+- **Repositorio (`jobs.py`):** `create_job` acepta `dedupe_key`; `find_duplicate` (misma key + estado no-terminal; COMPLETED/FAILED/CANCELLED no cuentan); `clear_source_url` (NO toca `updated_at` → Regla 12.1); `delete_job`; `list_terminal_older_than`; `set_priority`; `reset_for_retry` (resetea intentos+errores, devuelve el job).
+- **State machine:** `CANCELLED → RETRY_WAIT` agregado (retry manual de cancelados accidentales; COMPLETED sigue terminal).
+- **Servicios:** `services/retention.py` (3 relojes sobre `updated_at`: `source_url_retention`, `temporary_retention_hours`, `history_retention_days`; sweep al startup + cada 6 h + endpoint manual; nunca crashea el sweep); `services/batch.py` (async, por-item: intent → rate limit → resolve en thread → plan → dedupe → create; publica `batch_submitted`). Notificaciones: sin servicio nuevo — el dashboard usa los eventos SSE existentes + Notification API (opt-in, `lib/notify.ts`).
+- **API:** `POST /jobs/batch` (1–100 items, resultados por índice), dedupe también en `POST /jobs` single (200 + `"duplicate": true`, resolve pasa a `asyncio.to_thread`), `POST /jobs/{id}/retry` (FAILED/CANCELLED/RECOVERY_REQUIRED; 409 si URL redactada), `POST /jobs/{id}/priority` (±100), `GET /jobs` con `limit/cursor/states` + `next_cursor` (cursor base64url; `response_model=None` → Regla 12.2), `POST /maintenance/cleanup`, `PATCH /settings` (solo claves runtime, `extra="forbid"`).
+- **Executor:** el output final va a `output_root` con la regla configurada (`LMD_OUTPUT_ROOT`, default `~/Downloads/Local Media Downloader`; `LMD_OUTPUT_RULE`); `data_dir/output` como fallback en tests. `bandwidth_limit_bps` solo reservado (reportado, no enforceado).
+- **Web:** pantalla Batch (textarea multi-URL + preset + prioridad + tabla de resultados), History con paginación/Load more + Retry por fila + Run cleanup, JobDetails con Retry + editor de prioridad, Settings con sección editable de retention/output + toggle de notificaciones; `lib/presets.ts` compartido (Resolve refactorizado a usarlo).
+- **Gates:** pytest 294 passed/3 skipped, pyright 0, ruff check+format clean, pnpm lint/format:check/check/test/build verdes (22 vitest). Reglas nuevas 12.1, 12.2; 9.1 archivada por rotación.
 
 ---
 
 ## HISTORIAL RELEVANTE (comprimido, detalle completo en session_log_archive.md)
 
+- `Sesión 11 — 2026-10-06` — Cierre/verificación: fix pnpm 11 (`allowBuilds: { deno: true }`), CI 4/4 verde; Fase 11 evaluada (Native Messaging NO se implementa, se reevalúa en 16); sin browser real hasta Fase 16.
 - `Sesión 10 — 2026-10-06` — Fase 10: token, Host/Origin, bind loopback, SSRF guard, sanitización de filenames, rate limit; Reglas 10.1, 10.2, 10.3.
 - `Sesión 9 — 2026-10-06` — Fase 9: extensión MV3, handoff `?url=`, health Connected/Offline; Regla 9.1.
 - `Sesión 5 — 2026-10-06` — Fases 4 (FFmpeg/FFprobe adapters) + 5 (execution planner). 163 tests.

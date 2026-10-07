@@ -96,3 +96,13 @@ siguen corriendo en CI.
 **Solución:** el fallback excluye explícitamente `api` y `api/*` (404 JSON con `NOT_FOUND`); el banner del servicio se movió de `GET /` a `GET /api/v1` para que la `/` pertenezca siempre al SPA sin condicionales.
 
 **Regla de Oro:** *Si servís un SPA con fallback catch-all, excluí el prefijo de la API por código y testeá que una ruta API desconocida siga siendo 404 estructurado; una API que a veces devuelve HTML es un bug de contrato.*
+
+### Regla de Oro 9.1 [Extensión / permisos]: los host_permissions MV3 son solo loopback, sin IPv6 literal
+
+**Error:** el manifest declaraba `host_permissions: ["http://127.0.0.1/*", "http://localhost/*", "http://[::1]/*"]` para cubrir el servicio en cualquier loopback.
+
+**Root Cause:** los match patterns de Chrome no documentan ni aceptan IPv6 literal como host (documentan `localhost` y `127.0.0.1`); un host inválido hace que Chrome rechace el manifest completo y la extensión no cargue. El patrón `localhost/*` ya cubre el caso `::1` a nivel de resolución de nombres, así que el patrón extra no aportaba nada.
+
+**Solución:** `host_permissions` quedó en `["http://127.0.0.1/*", "http://localhost/*"]` y `tests/manifest.test.ts` falla si alguna vez se agrega un host fuera de loopback. La validación loopback del lado TS (`normalizeServiceUrl`) es independiente y sigue aceptando `::1` para Firefox, donde ese patrón sí es válido.
+
+**Regla de Oro:** *En una extensión que sólo habla con el servicio local, `host_permissions` se limita a `http://127.0.0.1/*` y `http://localhost/*` (nunca `<all_urls>`, nunca IPv6 literal) y esa lista se fija con un test; el least privilege se verifica, no se documenta.*

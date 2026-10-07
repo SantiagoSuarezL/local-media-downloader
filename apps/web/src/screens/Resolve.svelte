@@ -1,7 +1,8 @@
 <script lang="ts">
-  import type { MediaFormatDto, MediaInfoDto, OutputIntent } from '@lmd/contracts'
+  import type { MediaFormatDto, MediaInfoDto } from '@lmd/contracts'
   import { api } from '../lib/api'
   import { formatBytes, formatDuration } from '../lib/format'
+  import { PRESETS } from '../lib/presets'
 
   interface Props {
     onstarted?: (jobId: string) => void
@@ -11,52 +12,7 @@
 
   const { onstarted, initialUrl }: Props = $props()
 
-  interface Preset {
-    id: string
-    label: string
-    intent: OutputIntent
-  }
-
-  const baseIntent = (overrides: Partial<OutputIntent> = {}): OutputIntent => ({
-    media: 'video',
-    quality: 'best',
-    container: 'mp4',
-    audio: 'include',
-    video_codec: 'source',
-    processing: { resize: null, trim: null },
-    ...overrides,
-  })
-
-  const presets: Preset[] = [
-    { id: 'best', label: 'Best available', intent: baseIntent() },
-    { id: 'mp4', label: 'MP4', intent: baseIntent({ container: 'mp4' }) },
-    {
-      id: 'mp3',
-      label: 'MP3',
-      intent: baseIntent({ media: 'audio', container: 'mp3', audio: 'only' }),
-    },
-    {
-      id: 'video-only',
-      label: 'Video only',
-      intent: baseIntent({ container: 'mp4', audio: 'remove' }),
-    },
-    {
-      id: 'no-audio',
-      label: 'No audio',
-      intent: baseIntent({ container: 'mp4', audio: 'remove' }),
-    },
-    { id: 'webm', label: 'WebM', intent: baseIntent({ container: 'webm' }) },
-    {
-      id: 'mkv',
-      label: 'MKV',
-      intent: baseIntent({ container: 'mkv' }),
-    },
-    {
-      id: 'm4a',
-      label: 'M4A (audio only)',
-      intent: baseIntent({ media: 'audio', container: 'm4a', audio: 'only' }),
-    },
-  ]
+  const presets = PRESETS
 
   let url = $state('')
   let media = $state<MediaInfoDto | null>(null)

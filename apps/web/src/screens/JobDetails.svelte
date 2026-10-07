@@ -13,12 +13,15 @@
 
   let job = $state<JobDto | null>(null)
   let error = $state<string | null>(null)
+  let busy = $state(false)
+  let priority = $state(0)
 
   startLiveUpdates()
 
   async function load(id: string): Promise<void> {
     try {
       job = await api.getJob(id)
+      priority = job.priority
       error = null
     } catch (err) {
       error = err instanceof Error ? err.message : String(err)
@@ -29,11 +32,44 @@
     if (!job) {
       return
     }
+    busy = true
     try {
       job = await api.cancelJob(job.id)
       oncancelled?.()
     } catch (err) {
       error = err instanceof Error ? err.message : String(err)
+    } finally {
+      busy = false
+    }
+  }
+
+  async function retry(): Promise<void> {
+    if (!job) {
+      return
+    }
+    busy = true
+    try {
+      job = await api.retryJob(job.id)
+      error = null
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err)
+    } finally {
+      busy = false
+    }
+  }
+
+  async function savePriority(): Promise<void> {
+    if (!job || priority === job.priority) {
+      return
+    }
+    busy = true
+    try {
+      job = await api.setPriority(job.id, priority)
+      error = null
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err)
+    } finally {
+      busy = false
     }
   }
 
@@ -49,6 +85,9 @@
   const lj = $derived(job ? $live[job.id] : undefined)
   const cancellable = $derived(
     merged !== null && !['COMPLETED', 'FAILED', 'CANCELLED'].includes(merged.state),
+  )
+  const retryable = $derived(
+    merged !== null && ['FAILED', 'CANCELLED', 'RECOVERY_REQUIRED'].includes(merged.state),
   )
 </script>
 
@@ -74,15 +113,47 @@
           </h2>
           <p class="mt-1 truncate text-xs text-neutral-500">{merged.source_url ?? merged.id}</p>
         </div>
-        {#if cancellable}
-          <button
-            type="button"
-            class="shrink-0 rounded-lg border border-red-900 px-3 py-1.5 text-sm text-red-300 hover:bg-red-950/40"
-            onclick={() => void cancel()}
-          >
-            Cancel job
-          </button>
-        {/if}
+        <div class="flex shrink-0 items-center gap-2">
+          {#if retryable}
+            <button
+              type="button"
+              class="rounded-lg border border-sky-800 px-3 py-1.5 text-sm text-sky-300 hover:bg-sky-950/40 disabled:opacity-50"
+              disabled={busy}
+              onclick={() => void retry()}
+            >
+              Retry job
+            </button>
+          {/if}
+          {#if cancellable}
+            <button
+              type="button"
+              class="rounded-lg border border-red-900 px-3 py-1.5 text-sm text-red-300 hover:bg-red-950/40 disabled:opacity-50"
+              disabled={busy}
+              onclick={() => void cancel()}
+            >
+              Cancel job
+            </button>
+          {/if}
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2 text-xs text-neutral-400">
+        <label for="priority">Priority</label>
+        <input
+          id="priority"
+          type="number"
+          class="w-20 rounded-lg border border-neutral-800 bg-neutral-900 px-2 py-1 text-sm text-neutral-100"
+          bind:value={priority}
+        />
+        <button
+          type="button"
+          class="rounded border border-neutral-700 px-2 py-1 text-xs text-neutral-300 hover:border-sky-600 hover:text-sky-300 disabled:opacity-50"
+          disabled={busy || !job || priority === job.priority}
+          onclick={() => void savePriority()}
+        >
+          Save
+        </button>
+        <span class="text-neutral-600">Higher preempts lower in the queue.</span>
       </div>
 
       <dl class="grid grid-cols-2 gap-3 text-xs sm:grid-cols-3">

@@ -55,14 +55,14 @@ def test_happy_path_is_allowed() -> None:
 def test_terminal_states_only_allow_an_explicit_retry() -> None:
     """A terminal job is done for that attempt.
 
-    COMPLETED and CANCELLED are final; FAILED may only be re-entered explicitly
+    COMPLETED is final; FAILED and CANCELLED may only be re-entered explicitly
     through RETRY_WAIT (the retry endpoint), never silently resumed.
     """
     for state in TERMINAL_STATES:
         for target in JobState:
             allowed = can_transition(state, target)
-            if state is JobState.FAILED and target is JobState.RETRY_WAIT:
-                assert allowed, "FAILED must be retryable on purpose"
+            if state in {JobState.FAILED, JobState.CANCELLED} and target is JobState.RETRY_WAIT:
+                assert allowed, f"{state} must be retryable on purpose"
                 continue
             assert not allowed, f"{state} -> {target} must be rejected"
 

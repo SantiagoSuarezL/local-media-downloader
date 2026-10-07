@@ -72,6 +72,21 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         CREATE INDEX idx_jobs_sort ON jobs(priority DESC, created_at DESC, id DESC);
         """,
     ),
+    (
+        3,
+        "dedupe key for duplicate detection and retention scan support",
+        """
+        -- Phase 12: a job is a duplicate when another non-terminal job shares the
+        -- same normalized URL + intent. The key is a single SHA-256 so the lookup
+        -- is one indexed column instead of a JSON comparison.
+        ALTER TABLE jobs ADD COLUMN dedupe_key TEXT;
+        CREATE INDEX idx_jobs_dedupe ON jobs(dedupe_key);
+
+        -- Retention and cleanup scan terminal jobs by age; updated_at is the last
+        -- state change, which for a terminal job is when it became terminal.
+        CREATE INDEX idx_jobs_updated_at ON jobs(updated_at);
+        """,
+    ),
 ]
 
 

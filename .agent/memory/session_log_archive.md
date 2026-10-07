@@ -421,3 +421,13 @@ validada vía FFprobe — todo verde con ffmpeg/ffprobe del PATH (scoop).
 
 ruff + format clean, pyright 0, pytest 154 passed / 3 live skipped (141 → 154
 con los 13 nuevos: 5 parse_probe + 8 acceptance ffmpeg). JS sin cambios.
+
+### Sesión 11 — 2026-10-06 — opencode/fledge-alpha-free vía OpenCode (PowerShell/Windows)
+
+- Sesión de cierre/verificación (sin código de producto): `gh` CLI instalado vía scoop (2.102.0) + `gh auth login` hecho por el usuario → habilitó `gh run view --log-failed`, que antes daba 403 con la API pública.
+- **CI: el job `frontend` estaba en rojo desde el commit de Fase 3** (los dos OS) y nadie lo había notado; `backend` pasaba. Causa raíz: pnpm **11 eliminó** `onlyBuiltDependencies` y lo ignora en silencio, así que el install limpio en CI abortaba con `ERR_PNPM_IGNORED_BUILDS` (deno) y su postinstall nunca corría — el runtime JS de yt-dlp-ejs tampoco estaba instalado en máquinas limpias. Localmente todo pasaba porque `node_modules` ya tenía el binario de instalaciones viejas.
+- Fix: `pnpm-workspace.yaml` → `allowBuilds: { deno: true }`, verificado **antes** de pushear con un clon limpio (`git clone --depth 1`, borrar `node_modules`, correr los 5 pasos exactos del job frontend: install, lint, format:check, check, test, build). Commit `cbf8277`; CI quedó **4/4 verde** (run `37512262845`).
+- Commit `8666100` con las fases 7–10 pusheado (un solo commit porque `app.py` mezcla las cuatro fases).
+- **Fase 11 evaluada: NO se implementa Native Messaging.** El gate de `IMPLEMENTATION_PLAN.md` exige "instalación/distribución entendidas", y eso recién existe en Fase 16 (PyInstaller + Inno Setup). Además Native Messaging solo tiene sentido para builds instalados: el MVP localhost se comunica por HTTP loopback sin él. Se reevalúa en Fase 16.
+- **Decisión explícita del usuario: no probar la extensión en un browser real hasta Fase 16.** Los riesgos que eso deja abiertos quedaron escritos como observación en curso (popup/CSP MV3, cookie `SameSite=Strict` contra el SSE, detección Chrome/Firefox del bridge) con el checklist para Fase 16.
+- `roadmap.md` actualizado (Fase 11 como evaluada; corregida la referencia obsoleta a `onlyBuiltDependencies`; la nota de "docs/ sin trackear" ya no aplica porque `.agent/` está versionado).

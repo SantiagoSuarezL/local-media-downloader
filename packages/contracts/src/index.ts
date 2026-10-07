@@ -39,6 +39,7 @@ export interface JobDto {
 
 export interface JobListResponse {
   jobs: JobDto[]
+  next_cursor: string | null
 }
 
 export interface MediaSourceDto {
@@ -96,6 +97,50 @@ export interface CreateJobRequest {
   priority?: number
 }
 
+export interface BatchJobItem {
+  url: string
+  intent: OutputIntent
+  title?: string
+  priority?: number
+}
+
+export interface BatchRequest {
+  items: BatchJobItem[]
+}
+
+export type BatchItemStatus = 'created' | 'duplicate' | 'error'
+
+export interface BatchItemResult {
+  index: number
+  status: BatchItemStatus
+  job?: {
+    id: string
+    state: JobState
+    title: string | null
+    priority: number
+  }
+  error?: { code: string; message: string | null }
+}
+
+export interface BatchResponse {
+  results: BatchItemResult[]
+}
+
+export interface CleanupReport {
+  urls_redacted: number
+  jobs_deleted: number
+  directories_deleted: number
+  errors: string[]
+}
+
+export interface SettingsUpdate {
+  source_url_retention?: string
+  history_retention_days?: number
+  temporary_retention_hours?: number
+  output_rule?: string
+  bandwidth_limit_bps?: number | null
+}
+
 export interface ToolStatusDto {
   detected: boolean
   version: string | null
@@ -127,6 +172,12 @@ export interface SettingsDto {
   scheduler_max_encoders: number
   scheduler_max_attempts: number
   scheduler_retry_backoff_seconds: number
+  output_root: string
+  output_rule: string
+  source_url_retention: string
+  history_retention_days: number
+  temporary_retention_hours: number
+  bandwidth_limit_bps: number | null
 }
 
 export interface JobEventPayload {

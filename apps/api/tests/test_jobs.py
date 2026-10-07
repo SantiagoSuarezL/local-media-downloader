@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -262,3 +263,92 @@ def test_deleting_a_job_cascades_events(conn) -> None:
             "INSERT INTO job_events (job_id, timestamp, event_type) VALUES (?, 'now', 'X')",
             (job.id,),
         )
+
+
+_DEDUPE_INTENT = {
+    "media": "video",
+    "quality": "best",
+    "container": "mp4",
+    "audio": "include",
+    "video_codec": "source",
+}
+
+
+def test_find_duplicate_returns_non_terminal_job_with_same_key(conn) -> None:
+    from local_media_downloader.domain.dedupe import dedupe_key
+    from local_media_downloader.jobs import find_duplicate
+
+    intent = dict(_DEDUPE_INTENT)
+    key = dedupe_key(URL, intent)
+    job = create_job(conn, source_url=URL, dedupe_key=key, state=JobState.QUEUED)
+    found = find_duplicate(conn, key)
+    assert found is not None
+    assert found.id == job.id
+
+
+def test_find_duplicate_ignores_terminal_jobs(conn) -> None:
+    from local_media_downloader.domain.dedupe import dedupe_key
+    from local_media_downloader.jobs import find_duplicate
+
+    intent = dict(_DEDUPE_INTENT)
+    key = dedupe_key(URL, intent)
+    job = create_job(conn, source_url=URL, dedupe_key=key, state=JobState.QUEUED)
+    transition(conn, job.id, JobState.DOWNLOADING)
+    transition(conn, job.id, JobState.FAILED)
+    assert find_duplicate(conn, key) is None
+
+
+def test_clear_source_url_keeps_hash(conn) -> None:
+    from local_media_downloader.jobs import clear_source_url
+
+    job = create_job(conn, source_url=URL)
+    clear_source_url(conn, job.id)
+    updated = get_job(conn, job.id)
+    assert updated is not None
+    assert updated.source_url is None
+    assert updated.source_url_hash == hash_url(URL)
+
+
+def test_delete_job_removes_row(conn) -> None:
+    from local_media_downloader.jobs import delete_job
+
+    job = create_job(conn, source_url=URL)
+    assert delete_job(conn, job.id) is True
+    assert get_job(conn, job.id) is None
+    assert delete_job(conn, job.id) is False
+
+
+def test_list_terminal_older_than_filters_by_age(conn) -> None:
+    from local_media_downloader.jobs import list_terminal_older_than
+
+    job = create_job(conn, source_url=URL, state=JobState.QUEUED)
+    transition(conn, job.id, JobState.DOWNLOADING)
+    transition(conn, job.id, JobState.FAILED)
+    old = (datetime.now(UTC) - timedelta(days=5)).isoformat(timespec="milliseconds")
+    conn.execute("UPDATE jobs SET updated_at = ? WHERE id = ?", (old, job.id))
+    conn.commit()
+    found = list_terminal_older_than(conn, (datetime.now(UTC) - timedelta(days=1)).isoformat())
+    assert len(found) == 1
+    assert found[0].id == job.id
+
+
+def test_set_priority_updates_queue_order(conn) -> None:
+    from local_media_downloader.jobs import set_priority
+
+    job = create_job(conn, source_url=URL)
+    updated = set_priority(conn, job.id, 10)
+    assert updated.priority == 10
+
+
+def test_reset_for_retry_clears_attempts_and_errors(conn) -> None:
+    from local_media_downloader.jobs import reset_for_retry
+
+    job = create_job(conn, source_url=URL, state=JobState.QUEUED)
+    transition(conn, job.id, JobState.DOWNLOADING)
+    transition(conn, job.id, JobState.FAILED, error_code="NETWORK_ERROR")
+    reset_for_retry(conn, job.id)
+    updated = get_job(conn, job.id)
+    assert updated is not None
+    assert updated.attempt_count == 0
+    assert updated.error_code is None
+    assert updated.error_message is None

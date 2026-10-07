@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Batch from './screens/Batch.svelte'
   import Dashboard from './screens/Dashboard.svelte'
   import Diagnostics from './screens/Diagnostics.svelte'
   import History from './screens/History.svelte'
@@ -6,10 +7,12 @@
   import Resolve from './screens/Resolve.svelte'
   import Settings from './screens/Settings.svelte'
   import { startLiveUpdates, stopLiveUpdates } from './lib/live'
+  import { startJobNotifications } from './lib/notify'
 
   const TABS = [
     'Dashboard',
     'Resolve',
+    'Batch',
     'Job details',
     'History',
     'Settings',
@@ -25,6 +28,7 @@
   const handoffUrl = new URLSearchParams(window.location.search).get('url')
 
   startLiveUpdates()
+  startJobNotifications()
   $effect(() => () => stopLiveUpdates())
 
   $effect(() => {
@@ -64,6 +68,8 @@
       <Dashboard onopen={openJob} />
     {:else if tab === 'Resolve'}
       <Resolve onstarted={openJob} initialUrl={handoffUrl ?? undefined} />
+    {:else if tab === 'Batch'}
+      <Batch onopen={openJob} />
     {:else if tab === 'Job details'}
       <JobDetails jobId={selectedJobId} oncancelled={() => (tab = 'Dashboard')} />
     {:else if tab === 'History'}
