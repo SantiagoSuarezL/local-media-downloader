@@ -12,23 +12,24 @@
 
 ## ÚLTIMA SESIÓN (detalle completo)
 
-`Sesión 18 — 2026-10-07 — opencode/z-ai-glm-5.3 (fix encode-options + verificación) vía OpenCode`
+`Sesión 20 — 2026-10-07 — opencode/moonshotai/kimi-k3 (auditoría + fix del slice audio normalization Fase 14) vía OpenCode`
 
-- HANDOFF Fase 14/encode-options: pyright en rojo (2 errores en `services/executor.py`). Raíz: `VideoEncodeOptionsTool` (protocolo runtime_checkable) redeclaraba `transcode`, nombre que `MediaTool` ya tiene → isinstance sólo prueba presencia (todo MediaTool lo tiene, stubs viejos incluidos → guardián muerto, bug latente) y en la intersección el unpack `**_EncodeKwargs` no matcheaba la firma de MediaTool. Pyright señalaba un bug real, no ruido. → **Regla de Oro 14.1**.
-- Fix quirúrgico (solo executor.py): `_supports_encode_options()` verifica la firma real con `inspect.signature(processor.transcode).parameters` (keywords `video_bitrate`/`video_framerate`); la llamada va por `cast(VideoEncodeOptionsTool, ...)` con una única rama TRANSCODE (if/else duplicado eliminado); el protocolo dejó de ser `runtime_checkable` y su docstring documenta por qué. `intent.py`: comentario obsoleto de `video_codec` actualizado. Cero tests viejos tocados.
-- Tests nuevos en `test_encode.py` (blinden el diseño): executor forwardea bitrate/framerate a un processor con firma extendida; processor legacy + sin opciones → transcode normal sigue; processor legacy + opciones → `UNSUPPORTED_INTENT` sin llamada.
-- Slice verificado sin debilitar nada: planner emite `video_codec` base (`libvpx-vp9` webm / `libx264` resto) que `**encode` sobreescribe solo con codec explícito — tests del modelo barato ya eran consistentes; no hizo falta tocar planner. DTO crece (`video_bitrate`/`video_framerate` opcionales) pero no está expuesto en `_job_dict` → sin sync de `test_contracts.py`/`schemas.ts`; `packages/contracts/src/index.ts` ya actualizado.
-- Gates TODO VERDE: ruff check+format clean, pyright 0, pytest 491 passed/3 skipped + smoke 1 passed (ffmpeg local tiene libsvtav1 → tests av1 corren), pnpm lint/format:check/check/test (22 ext + 88 web)/build verdes. Total: 605 tests.
-- Pendientes Fase 14: subtítulos, metadata, audio normalization.
+- Auditoría del HANDOFF Sesión 19: gates del handoff verdes reales, pero el slice tenía 4 problemas: (1) `audio_normalize=True` con fuente copy-compatible caía en REMUX (`-c copy`) → loudnorm nunca se aplicaba (degradación silenciosa, el caso más común mp4→mp4); (2) combos `audio=remove` y presets gif/webp/sticker/mobile llevaban la key como detalle muerto en vez de rechazarse; (3) el executor pasaba `audio_normalize=` incondicional a `transcode` (rompía procesadores con firma Fase 4, compatibilidad documentada de la Regla 14.1) y lo enmascaró agregando `**kwargs` al stub `_LegacyTranscoder` (test viejo debilitado); (4) cambio ajeno de fase en `_step_from_dict` de scheduler.py.
+- Fix quirúrgico: `_full_video_plan` incluye `not intent.audio_normalize` en `compatible` (fuerza TRANSCODE, igual que trim/resize/crop/encode); planner rechaza normalize para `audio=remove` y presets (UNSUPPORTED_INTENT); keys muertas fuera de REMUX/VIDEO_ONLY. Executor: `_NormalizeKwarg` TypedDict + `_supports_audio_normalize` (inspección de firma, mismo patrón que `_supports_encode_options`) — kwarg solo se reenvía si fue pedido; pedido-pero-no-soportado → UNSUPPORTED_INTENT. `_LegacyTranscoder` restaurado a su firma Fase 4 (test honesto de nuevo); `_step_from_dict` revertido a coerción `str()` (mantiene la garantía runtime de `PlanStep.detail: dict[str, str]`).
+- Feature blindada con la matriz de capability que §528 de IMPLEMENTATION_PLAN exige: `tests/test_audio_normalize.py` nuevo (27 tests) — parse (bool estricto, rechaza "true"/1/None), matriz planner (fuerza transcode, copy sin la key, extract_audio, combo trim, rechazos remove/presets), forwarding executor (transcode/extract_audio, rechazo legacy + kwarg omitido en legacy), argv del adapter con ffmpeg real (loudnorm llega a transcode/extract_audio/trimmed/resize/crop; nunca con `audio_codec="none"`).
+- Sin sync frontend: backend-only igual que slices trim/resize/crop/encode (la key es opcional; `OutputIntent.as_dict()` no alimenta ningún DTO de respuesta).
+- Gates TODO VERDE: ruff check+format clean, pyright 0, pytest 518 passed/3 skipped (fast) + smoke 1 passed, pnpm lint/format:check/check/test (22 ext + 88 web)/build verdes. Total: 629 tests.
+- Pendientes Fase 14: subtítulos, metadata.
 
 ---
 
 ## HISTORIAL RELEVANTE (comprimido, detalle completo en session_log_archive.md)
 
+- `Sesión 19 — 2026-10-07` — Slice audio normalization Fase 14 (loudnorm I=-14/LRA=11/TP=-1.5 en intent→planner→executor→ffmpeg); verificado y corregido en Sesión 20.
+- `Sesión 18 — 2026-10-07` — Fix encode-options Fase 14 + verificación; pyright 0, 491 tests; pendientes subtítulos, metadata, audio normalization.
 - `Sesión 17 — 2026-10-07` — Slice crop Fase 14 (fix `_crop_filter` `w:h[:x:y]` + check de caja exacto solo sin resize; one-pass observable); 545 tests; commit + push.
 - `Sesión 16 — 2026-10-07` — Slice resize Fase 14 (fix `parse_resize` con cotas + rechazos planner + bbox single-pass trim+resize); 501 tests; commit + push.
 - `Sesión 15 — 2026-10-07` — Slice trim Fase 14 (fix `_run`/`_check_trimmed` unlink + validate pura); 469 tests; commit + push.
-- `Sesión 14 — 2026-10-07` — Fase 13 (presets gif/webp/sticker/mobile + VP9/Opus en webm); drill stop-on-failure validado; 439 tests; commit `b4c10cf` + push.
 
 - `Sesión 13 — 2026-10-07` — Sistema de gates para modelos baratos (`docs/TESTING.md`, contratos backend, suite web 85 Vitest, smoke e2e); 415 tests.
 - `Sesión 12 — 2026-10-07` — Fase 12 (Batch + history + retention + output root + notificaciones); Reglas 12.1, 12.2.

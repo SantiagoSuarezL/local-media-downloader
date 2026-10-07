@@ -72,6 +72,30 @@ def _supports_encode_options(processor: MediaTool) -> bool:
     return "video_bitrate" in parameters and "video_framerate" in parameters
 
 
+class _NormalizeKwarg(TypedDict, total=False):
+    """Conditional ``audio_normalize`` forwarding for ``transcode``.
+
+    The keyword is only unpacked when normalization was requested: a
+    processor that predates the parameter must keep working for plain
+    transcodes (same legacy tolerance as the encode options, Regla 14.1).
+    """
+
+    audio_normalize: bool
+
+
+def _supports_audio_normalize(processor: MediaTool) -> bool:
+    """Prove the injected processor's ``transcode`` accepts ``audio_normalize``.
+
+    Same signature-inspection reason as :func:`_supports_encode_options`:
+    presence of a ``transcode`` method proves nothing about its keywords.
+    """
+    try:
+        parameters = inspect.signature(processor.transcode).parameters
+    except (TypeError, ValueError):  # pragma: no cover — callables without signatures
+        return False
+    return "audio_normalize" in parameters
+
+
 class VideoEncodeOptionsTool(Protocol):
     """Optional capability: bitrate/framerate control (checked, never assumed).
 
@@ -91,6 +115,7 @@ class VideoEncodeOptionsTool(Protocol):
         audio_codec: str = ...,
         video_bitrate: str | None = ...,
         video_framerate: str | None = ...,
+        audio_normalize: bool = ...,
         timeout: float = ...,
     ) -> Path: ...
 
@@ -121,6 +146,7 @@ class MediaTool(Protocol):
         *,
         codec: str = ...,
         bitrate: str = ...,
+        audio_normalize: bool = ...,
         timeout: float = ...,
     ) -> Path: ...
 
@@ -146,6 +172,7 @@ class TrimTool(Protocol):
         crop_box: str | None = ...,
         video_bitrate: str | None = ...,
         video_framerate: str | None = ...,
+        audio_normalize: bool = ...,
         timeout: float = ...,
     ) -> Path: ...
 
@@ -158,6 +185,7 @@ class TrimTool(Protocol):
         end: float,
         codec: str = ...,
         bitrate: str = ...,
+        audio_normalize: bool = ...,
         timeout: float = ...,
     ) -> Path: ...
 
@@ -176,6 +204,7 @@ class ResizeTool(Protocol):
         audio_codec: str = ...,
         video_bitrate: str | None = ...,
         video_framerate: str | None = ...,
+        audio_normalize: bool = ...,
         timeout: float = ...,
     ) -> Path: ...
 
@@ -195,6 +224,7 @@ class CropTool(Protocol):
         audio_codec: str = ...,
         video_bitrate: str | None = ...,
         video_framerate: str | None = ...,
+        audio_normalize: bool = ...,
         timeout: float = ...,
     ) -> Path: ...
 
@@ -360,10 +390,17 @@ class DefaultExecutor:
             self._processor.remux(source, target)
         elif kind == "TRANSCODE":
             encode_kwargs = _encode_kwargs(detail)
+            normalize = detail.get("audio_normalize") == "True"
             if encode_kwargs and not _supports_encode_options(self._processor):
                 raise ExtractionError(
                     ErrorCode.UNSUPPORTED_INTENT,
                     "The media processor does not support encode options.",
+                    retryable=False,
+                )
+            if normalize and not _supports_audio_normalize(self._processor):
+                raise ExtractionError(
+                    ErrorCode.UNSUPPORTED_INTENT,
+                    "The media processor does not support audio normalization.",
                     retryable=False,
                 )
             cast(VideoEncodeOptionsTool, self._processor).transcode(
@@ -374,11 +411,17 @@ class DefaultExecutor:
                     "audio_codec", "none" if detail.get("audio") == "none" else "aac"
                 ),
                 **encode_kwargs,
+                **(_NormalizeKwarg(audio_normalize=True) if normalize else _NormalizeKwarg()),
             )
         elif kind == "CONVERT_PRESET":
             self._processor.convert_preset(source, target, preset=detail["preset"])
         elif kind == "EXTRACT_AUDIO":
-            self._processor.extract_audio(source, target, codec=detail.get("codec", "libmp3lame"))
+            self._processor.extract_audio(
+                source,
+                target,
+                codec=detail.get("codec", "libmp3lame"),
+                audio_normalize=detail.get("audio_normalize") == "True",
+            )
         elif kind == "VIDEO_ONLY":
             self._processor.video_only(source, target)
         else:  # pragma: no cover — guarded by _first_operation
@@ -425,6 +468,7 @@ class DefaultExecutor:
                 resize_target=resize_target,
                 crop_box=crop_box,
                 **_encode_kwargs(detail),
+                audio_normalize=detail.get("audio_normalize") == "True",
             )
         else:
             if "resize" in detail or "crop" in detail:
@@ -434,7 +478,12 @@ class DefaultExecutor:
                     retryable=False,
                 )
             processor.extract_audio_trimmed(
-                source, target, start=start, end=end, codec=detail.get("codec", "libmp3lame")
+                source,
+                target,
+                start=start,
+                end=end,
+                codec=detail.get("codec", "libmp3lame"),
+                audio_normalize=detail.get("audio_normalize") == "True",
             )
 
     def _process_geometry(self, detail: dict[str, str], source: Path, target: Path) -> None:
@@ -482,6 +531,7 @@ class DefaultExecutor:
             ),
             resize_target=resize_target,
             **_encode_kwargs(detail),
+            audio_normalize=detail.get("audio_normalize") == "True",
         )
 
     def _process_cropped_and_resized(
@@ -504,6 +554,7 @@ class DefaultExecutor:
             ),
             resize_target=resize_target,
             **_encode_kwargs(detail),
+            audio_normalize=detail.get("audio_normalize") == "True",
         )
 
     def _process_resized(
@@ -525,6 +576,7 @@ class DefaultExecutor:
                 "audio_codec", "none" if detail.get("audio") == "none" else "aac"
             ),
             **_encode_kwargs(detail),
+            audio_normalize=detail.get("audio_normalize") == "True",
         )
 
     def _publish_state(self, job_id: str, state: JobState, *, stage: str) -> None:

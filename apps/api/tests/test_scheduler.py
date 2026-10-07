@@ -111,6 +111,7 @@ class StubProcessor:
         *,
         codec: str = "libmp3lame",
         bitrate: str = "192k",
+        audio_normalize: bool = False,
         timeout: float = 0.0,
     ) -> Path:
         return self._write(destination)

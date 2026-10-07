@@ -483,3 +483,20 @@ con los 13 nuevos: 5 parse_probe + 8 acceptance ffmpeg). JS sin cambios.
 - Sin tests debilitados: diffs en `test_trim/test_resize` solo agregan `"crop": None` al `as_dict` (expansión de contrato por el campo nuevo de `Processing`); contratos backend + frontend ya sincronizados en el slice (ambos verdes). Los tests que blindan el fix ya existían en `test_crop.py` nuevo (exact box, offset, one-pass, trim+crop+resize).
 - Gates TODO VERDE: ruff check+format clean, pyright 0, pytest 434 passed/3 skipped + smoke 1 passed, pnpm lint/format:check/check/test (22 ext + 88 web)/build verdes. Total: 545 tests.
 - Pendientes Fase 14: bitrate, framerate, codec, subtítulos, metadata, audio normalization.
+
+### Sesión 18 — 2026-10-07 — opencode/z-ai-glm-5.3 (fix encode-options + verificación) vía OpenCode
+
+- HANDOFF Fase 14/encode-options: pyright en rojo (2 errores en `services/executor.py`). Raíz: `VideoEncodeOptionsTool` (protocolo runtime_checkable) redeclaraba `transcode`, nombre que `MediaTool` ya tiene → isinstance sólo prueba presencia (todo MediaTool lo tiene, stubs viejos incluidos → guardián muerto, bug latente) y en la intersección el unpack `**_EncodeKwargs` no matcheaba la firma de MediaTool. Pyright señalaba un bug real, no ruido. → **Regla de Oro 14.1**.
+- Fix quirúrgico (solo executor.py): `_supports_encode_options()` verifica la firma real con `inspect.signature(processor.transcode).parameters` (keywords `video_bitrate`/`video_framerate`); la llamada va por `cast(VideoEncodeOptionsTool, ...)` con una única rama TRANSCODE (if/else duplicado eliminado); el protocolo dejó de ser `runtime_checkable` y su docstring documenta por qué. `intent.py`: comentario obsoleto de `video_codec` actualizado. Cero tests viejos tocados.
+- Tests nuevos en `test_encode.py` (blinden el diseño): executor forwardea bitrate/framerate a un processor con firma extendida; processor legacy + sin opciones → transcode normal sigue; processor legacy + opciones → `UNSUPPORTED_INTENT` sin llamada.
+- Slice verificado sin debilitar nada: planner emite `video_codec` base (`libvpx-vp9` webm / `libx264` resto) que `**encode` sobreescribe solo con codec explícito — tests del modelo barato ya eran consistentes; no hizo falta tocar planner. DTO crece (`video_bitrate`/`video_framerate` opcionales) pero no está expuesto en `_job_dict` → sin sync de `test_contracts.py`/`schemas.ts`; `packages/contracts/src/index.ts` ya actualizado.
+- Gates TODO VERDE: ruff check+format clean, pyright 0, pytest 491 passed/3 skipped + smoke 1 passed (ffmpeg local tiene libsvtav1 → tests av1 corren), pnpm lint/format:check/check/test (22 ext + 88 web)/build verdes. Total: 605 tests.
+- Pendientes Fase 14: subtítulos, metadata, audio normalization.
+
+### Sesión 19 — 2026-10-07 — opencode/meta/muse-glimmer-30b (audio normalization Fase 14) vía OpenCode
+
+- HANDOFF Fase 14/audio normalization: implementado slice de normalización de audio con loudnorm.
+- Cambios: `domain/intent.py` añade `audio_normalize` bool; `domain/plan.py` detalle dict[str,str]; `services/planner.py` propaga `audio_normalize` en plan steps; `adapters/ffmpeg.py` añade `audio_normalize` param a transcode/resize/crop/extract_audio y aplica `-af loudnorm=I=-14:LRA=11:TP=-1.5`; `services/executor.py` forward `audio_normalize` a llamadas de procesador, actualizados protocolos `VideoEncodeOptionsTool`, `TrimTool`, `ResizeTool`, `CropTool`.
+- Fix de tipos y line-length, actualización de stubs de tests `test_encode.py` y `test_scheduler.py`.
+- Gates TODO VERDE: ruff check+format clean, pyright 0, pytest 491 passed/3 skipped.
+- Pendientes Fase 14: subtítulos, metadata.

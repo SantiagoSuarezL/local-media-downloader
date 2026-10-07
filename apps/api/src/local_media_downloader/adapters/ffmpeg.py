@@ -29,6 +29,8 @@ _LOGGER = get_logger("processor.ffmpeg")
 
 DEFAULT_TIMEOUT = 600.0
 
+LOUNDNORM_FILTER = "loudnorm=I=-14:LRA=11:TP=-1.5"
+
 
 class FFmpegProcessor:
     """``MediaProcessor`` implementation backed by ffmpeg."""
@@ -70,9 +72,11 @@ class FFmpegProcessor:
         audio_codec: str = "aac",
         video_bitrate: str | None = None,
         video_framerate: str | None = None,
+        audio_normalize: bool = False,
         timeout: float = DEFAULT_TIMEOUT,
     ) -> Path:
         """Re-encode video and audio into a self-contained file."""
+        audio_filters = [LOUNDNORM_FILTER] if audio_normalize and audio_codec != "none" else []
         return self._run(
             source,
             destination,
@@ -82,6 +86,7 @@ class FFmpegProcessor:
                 video_codec,
                 *_cpu_args(video_codec),
                 *(["-b:v", video_bitrate] if video_bitrate is not None else []),
+                *(["-af", ",".join(audio_filters)] if audio_filters else []),
                 *(["-an"] if audio_codec == "none" else ["-c:a", audio_codec]),
             ],
             timeout=timeout,
@@ -100,6 +105,7 @@ class FFmpegProcessor:
         crop_box: str | None = None,
         video_bitrate: str | None = None,
         video_framerate: str | None = None,
+        audio_normalize: bool = False,
         timeout: float = DEFAULT_TIMEOUT,
     ) -> Path:
         """Re-encode only the ``[start, end)`` window (accurate cut, never stream copy).
@@ -120,6 +126,7 @@ class FFmpegProcessor:
                 video_codec,
                 *_cpu_args(video_codec),
                 *(["-b:v", video_bitrate] if video_bitrate is not None else []),
+                *(["-af", LOUNDNORM_FILTER] if audio_normalize and audio_codec != "none" else []),
                 *(["-an"] if audio_codec == "none" else ["-c:a", audio_codec]),
             ],
             timeout=timeout,
@@ -143,13 +150,22 @@ class FFmpegProcessor:
         end: float,
         codec: str = "libmp3lame",
         bitrate: str = "192k",
+        audio_normalize: bool = False,
         timeout: float = DEFAULT_TIMEOUT,
     ) -> Path:
         """Extract the ``[start, end)`` window of the audio track."""
         result = self._run(
             source,
             destination,
-            [*_trim_args(start, end), "-vn", "-c:a", codec, "-b:a", bitrate],
+            [
+                *_trim_args(start, end),
+                "-vn",
+                "-c:a",
+                codec,
+                "-b:a",
+                bitrate,
+                *(["-af", LOUNDNORM_FILTER] if audio_normalize else []),
+            ],
             timeout=timeout,
         )
         return self._check_trimmed(result, start, end)
@@ -177,13 +193,21 @@ class FFmpegProcessor:
         *,
         codec: str = "libmp3lame",
         bitrate: str = "192k",
+        audio_normalize: bool = False,
         timeout: float = DEFAULT_TIMEOUT,
     ) -> Path:
         """Extract the audio track only."""
         return self._run(
             source,
             destination,
-            ["-vn", "-c:a", codec, "-b:a", bitrate],
+            [
+                "-vn",
+                "-c:a",
+                codec,
+                "-b:a",
+                bitrate,
+                *(["-af", LOUNDNORM_FILTER] if audio_normalize else []),
+            ],
             timeout=timeout,
         )
 
@@ -197,6 +221,7 @@ class FFmpegProcessor:
         audio_codec: str = "aac",
         video_bitrate: str | None = None,
         video_framerate: str | None = None,
+        audio_normalize: bool = False,
         timeout: float = DEFAULT_TIMEOUT,
     ) -> Path:
         """Resize video to target height (``720p``) or bbox (``1280x720``).
@@ -216,6 +241,7 @@ class FFmpegProcessor:
                 video_codec,
                 *_cpu_args(video_codec),
                 *(["-b:v", video_bitrate] if video_bitrate is not None else []),
+                *(["-af", LOUNDNORM_FILTER] if audio_normalize and audio_codec != "none" else []),
                 *(["-an"] if audio_codec == "none" else ["-c:a", audio_codec]),
             ],
             timeout=timeout,
@@ -233,6 +259,7 @@ class FFmpegProcessor:
         audio_codec: str = "aac",
         video_bitrate: str | None = None,
         video_framerate: str | None = None,
+        audio_normalize: bool = False,
         timeout: float = DEFAULT_TIMEOUT,
     ) -> Path:
         """Cut out the exact rectangle ``box`` (``640x480`` / ``640x480+100+50``).
@@ -252,6 +279,7 @@ class FFmpegProcessor:
                 video_codec,
                 *_cpu_args(video_codec),
                 *(["-b:v", video_bitrate] if video_bitrate is not None else []),
+                *(["-af", LOUNDNORM_FILTER] if audio_normalize and audio_codec != "none" else []),
                 *(["-an"] if audio_codec == "none" else ["-c:a", audio_codec]),
             ],
             timeout=timeout,

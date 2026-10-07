@@ -9,10 +9,11 @@ Translates a validated :class:`OutputIntent` plus the resolved
 2. audio-only intent always maps to an audio extraction step;
 3. ``audio="remove"`` maps to a video-only stream-copy when compatible;
 4. processing: trim, crop and resize are planned as an accurate re-encode (stream
-   copy can neither cut on non-keyframes nor change the pixel geometry); they
-   are rejected for media presets, audio-only output and live sources — an
-   intent must never silently degrade (PRD: fake features are worse than
-   rejected intents);
+   copy can neither cut on non-keyframes nor change the pixel geometry); audio
+   normalization re-encodes the audio track (loudnorm is a filter, not a copy),
+   so it forces a transcode the same way. All of them are rejected for media
+   presets, audio-removed output and live sources — an intent must never
+   silently degrade (PRD: fake features are worse than rejected intents);
 5. the plan contains tool steps and static detail only — user input can
    never inject command arguments (TECHNICAL_SPEC §258).
 """
@@ -91,6 +92,12 @@ class Planner:
                     "Video encode options are not supported together with media presets.",
                     retryable=False,
                 )
+            if intent.audio_normalize:
+                raise ExtractionError(
+                    ErrorCode.UNSUPPORTED_INTENT,
+                    "Audio normalization is not supported together with media presets.",
+                    retryable=False,
+                )
             if not any(fmt.has_video for fmt in info.formats):
                 raise ExtractionError(
                     ErrorCode.UNSUPPORTED_INTENT,
@@ -129,6 +136,14 @@ class Planner:
             return self._audio_plan(intent, trim)
 
         if intent.audio is AudioChoice.REMOVE:
+            if intent.audio_normalize:
+                # The output has no audio track: there is nothing to normalize,
+                # and a silent no-op would fake the feature (PRD).
+                raise ExtractionError(
+                    ErrorCode.UNSUPPORTED_INTENT,
+                    "Audio normalization requires an audio track in the output.",
+                    retryable=False,
+                )
             return self._video_only_plan(intent, source_container, trim, resize, crop, encode)
 
         return self._full_video_plan(intent, source_container, trim, resize, crop, encode)
@@ -268,7 +283,12 @@ class Planner:
             PlanStep(
                 "EXTRACT_AUDIO",
                 "ffmpeg",
-                {"codec": codec, "container": intent.container, **trim},
+                {
+                    "codec": codec,
+                    "container": intent.container,
+                    **trim,
+                    "audio_normalize": str(intent.audio_normalize),
+                },
             ),
             PlanStep("VALIDATE", "ffprobe", {}),
             PlanStep("FINALIZE", "internal", {}),
@@ -306,29 +326,31 @@ class Planner:
                 PlanStep("VALIDATE", "ffprobe", {}),
                 PlanStep("FINALIZE", "internal", {}),
             )
-            return ExecutionPlan(steps=steps, strategy="video_only")
-        steps = (
-            PlanStep(
-                "SELECT_FORMAT", "yt_dlp", {"selector": self._selector(intent, audio_only=False)}
-            ),
-            PlanStep("DOWNLOAD", "yt_dlp", {}),
-            PlanStep(
-                "TRANSCODE",
-                "ffmpeg",
-                {
-                    "video_codec": "libvpx-vp9" if intent.container == "webm" else "libx264",
-                    "audio": "none",
-                    "container": intent.container,
-                    **trim,
-                    **resize,
-                    **crop,
-                    **encode,
-                },
-            ),
-            PlanStep("VALIDATE", "ffprobe", {}),
-            PlanStep("FINALIZE", "internal", {}),
-        )
-        return ExecutionPlan(steps=steps, strategy="transcode")
+        else:
+            steps = (
+                PlanStep(
+                    "SELECT_FORMAT",
+                    "yt_dlp",
+                    {"selector": self._selector(intent, audio_only=False)},
+                ),
+                PlanStep("DOWNLOAD", "yt_dlp", {}),
+                PlanStep(
+                    "TRANSCODE",
+                    "ffmpeg",
+                    {
+                        "video_codec": "libvpx-vp9" if intent.container == "webm" else "libx264",
+                        "audio": "none",
+                        "container": intent.container,
+                        **trim,
+                        **resize,
+                        **crop,
+                        **encode,
+                    },
+                ),
+                PlanStep("VALIDATE", "ffprobe", {}),
+                PlanStep("FINALIZE", "internal", {}),
+            )
+        return ExecutionPlan(steps=steps, strategy="video_only" if compatible else "transcode")
 
     def _full_video_plan(
         self,
@@ -344,6 +366,7 @@ class Planner:
             and not resize
             and not crop
             and not encode
+            and not intent.audio_normalize
             and source_container is not None
             and source_container in _CONTAINER_ACCEPTS.get(intent.container, frozenset())
         )
@@ -360,30 +383,33 @@ class Planner:
                 PlanStep("VALIDATE", "ffprobe", {}),
                 PlanStep("FINALIZE", "internal", {}),
             )
-            return ExecutionPlan(steps=steps, strategy="copy")
-        steps = (
-            PlanStep(
-                "SELECT_FORMAT", "yt_dlp", {"selector": self._selector(intent, audio_only=False)}
-            ),
-            PlanStep("DOWNLOAD", "yt_dlp", {}),
-            PlanStep("MERGE", "yt_dlp", {"mode": "mux"}),
-            PlanStep(
-                "TRANSCODE",
-                "ffmpeg",
-                {
-                    "video_codec": "libvpx-vp9" if intent.container == "webm" else "libx264",
-                    "audio_codec": "libopus" if intent.container == "webm" else "aac",
-                    "container": intent.container,
-                    **trim,
-                    **resize,
-                    **crop,
-                    **encode,
-                },
-            ),
-            PlanStep("VALIDATE", "ffprobe", {}),
-            PlanStep("FINALIZE", "internal", {}),
-        )
-        return ExecutionPlan(steps=steps, strategy="transcode")
+        else:
+            steps = (
+                PlanStep(
+                    "SELECT_FORMAT",
+                    "yt_dlp",
+                    {"selector": self._selector(intent, audio_only=False)},
+                ),
+                PlanStep("DOWNLOAD", "yt_dlp", {}),
+                PlanStep("MERGE", "yt_dlp", {"mode": "mux"}),
+                PlanStep(
+                    "TRANSCODE",
+                    "ffmpeg",
+                    {
+                        "video_codec": "libvpx-vp9" if intent.container == "webm" else "libx264",
+                        "audio_codec": "libopus" if intent.container == "webm" else "aac",
+                        "container": intent.container,
+                        **trim,
+                        **resize,
+                        **crop,
+                        **encode,
+                        "audio_normalize": str(intent.audio_normalize),
+                    },
+                ),
+                PlanStep("VALIDATE", "ffprobe", {}),
+                PlanStep("FINALIZE", "internal", {}),
+            )
+        return ExecutionPlan(steps=steps, strategy="copy" if compatible else "transcode")
 
 
 def _primary_container(info: MediaInfo) -> str | None:

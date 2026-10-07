@@ -315,6 +315,7 @@ class _EncodeRecordingProcessor:
         audio_codec: str = "aac",
         video_bitrate: str | None = None,
         video_framerate: str | None = None,
+        audio_normalize: bool = False,
         timeout: float = 0.0,
     ) -> Path:
         self.calls.append(
