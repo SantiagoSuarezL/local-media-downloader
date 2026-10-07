@@ -452,3 +452,11 @@ con los 13 nuevos: 5 parse_probe + 8 acceptance ffmpeg). JS sin cambios.
 - **Fase 11 evaluada: NO se implementa Native Messaging.** El gate de `IMPLEMENTATION_PLAN.md` exige "instalación/distribución entendidas", y eso recién existe en Fase 16 (PyInstaller + Inno Setup). Además Native Messaging solo tiene sentido para builds instalados: el MVP localhost se comunica por HTTP loopback sin él. Se reevalúa en Fase 16.
 - **Decisión explícita del usuario: no probar la extensión en un browser real hasta Fase 16.** Los riesgos que eso deja abiertos quedaron escritos como observación en curso (popup/CSP MV3, cookie `SameSite=Strict` contra el SSE, detección Chrome/Firefox del bridge) con el checklist para Fase 16.
 - `roadmap.md` actualizado (Fase 11 como evaluada; corregida la referencia obsoleta a `onlyBuiltDependencies`; la nota de "docs/ sin trackear" ya no aplica porque `.agent/` está versionado).
+
+### Sesión 14 — 2026-10-07 — cheap model (Fase 13) + opencode/muse-spark (verificación) vía OpenCode
+
+- Modelo barato implementó Fase 13 con el prompt de 6 pasos + TESTING.md y paró correctamente ante ruff E501 con HANDOFF bien formado (primer drill real del stop-on-failure; el proceso quedó validado).
+- **Fase 13 (Media presets):** contenedores `gif/webp/sticker/mobile` — `intent.py` (contenedores + reglas de audio), rama `CONVERT_PRESET` en planner, dispatch en executor (`_first_operation`/`_final_container`), `FFmpegProcessor.convert_preset` con autovalidación (validate + unlink), protocolos `MediaTool`/`MediaProcessor` ampliados; frontend: presets nuevos + `aria-label` + disclaimer WhatsApp; tests solo AGREGADOS (18 backend con ffmpeg real, 3 web + `Resolve.test.ts` nuevo), cero aserciones viejas tocadas.
+- Fix del modelo caro: E501 en `ffmpeg.py:141` (f-string del filtro sticker partida). Gates verdes: pytest 326 passed/3 skipped, pyright 0, ruff clean, pnpm lint/format/check/test/build verdes (22 vitest ext + 88 web). Total: 439 tests.
+- Nota de revisión: el planner también corrigió webm a VP9/Opus (antes libx264/aac en webm, no estándar); ningún test fijaba los códecs viejos. Commit `b4c10cf` + push.
+- Próxima fase: 14 (Advanced processing).

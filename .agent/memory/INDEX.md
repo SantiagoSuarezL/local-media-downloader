@@ -5,7 +5,7 @@
 ## Estado del proyecto
 
 **Proyecto:** local-media-downloader
-**Fase actual:** 14 (pendiente, sin empezar)
+**Fase actual:** 14 (en curso — slice trim; resto pendiente)
 **Próxima fase:** 14 — Advanced processing
 
 ## Tabla de archivos
