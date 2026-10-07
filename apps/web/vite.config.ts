@@ -1,9 +1,20 @@
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 import tailwindcss from '@tailwindcss/vite'
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   plugins: [tailwindcss(), svelte()],
+  // Vitest resolves `svelte` to the server build by default, which makes
+  // `mount()` (and every component test) fail with
+  // `lifecycle_function_unavailable`. The `browser` condition forces the
+  // client build for tests; the production client build already targets the
+  // browser, so this changes nothing outside `vitest run`.
+  resolve: {
+    conditions: ['browser'],
+  },
+  test: {
+    environment: 'jsdom',
+  },
   build: {
     // FastAPI serves these assets in production; keep them relative so the app
     // works from any mount path.

@@ -693,3 +693,8 @@ OpenCode should:
 8. Prefer a small correct change over a broad speculative refactor.
 9. Update documentation when a deliberate architectural decision changes.
 10. Never hide a failed test, lint error, subprocess error, or security concern.
+11. Run the gates in `docs/TESTING.md` after every non-trivial change, in
+    order, stopping at the first red gate. Cost-saving models: deterministic
+    formatters (`ruff format`, `prettier --write`) may auto-fix; any other red
+    gate ends the session with a HANDOFF block (`TESTING.md` §4/§6) — no fix
+    loops. A stronger model resolves the handoff next session.

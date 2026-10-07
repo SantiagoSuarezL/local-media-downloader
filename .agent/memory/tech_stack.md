@@ -39,13 +39,13 @@ local-media-downloader/
 ```
 Monolito modular local-first con scheduler durable de jobs (asyncio, sin Celery/RQ/Redis). API no contiene lógica yt-dlp/FFmpeg; workers ejecutan subprocesos aislados; SQLite solo metadata/estado (nunca bytes de media). Progreso en tiempo real vía SSE (`GET /api/v1/events`); acciones del usuario vía HTTP. En producción FastAPI sirve el build estático de Svelte — sin servidor Node en runtime.
 
-**Configuración tooling:** uv (env/deps), pytest + httpx (Pyright para types, Ruff lint+format), Vite (frontend/extension); ESLint 10 + typescript-eslint + eslint-plugin-svelte, Prettier 3 (svelte + tailwind plugins), Vitest 5 (tests JS), `pre-commit` 4 (hooks ruff+prettier); no mypy, no watchfiles en runtime. CI = GitHub Actions con matriz `ubuntu-latest` + `windows-latest`.
+**Configuración tooling:** uv (env/deps), pytest + httpx (Pyright para types, Ruff lint+format), Vite (frontend/extension); ESLint 10 + typescript-eslint + eslint-plugin-svelte, Prettier 3 (svelte + tailwind plugins), Vitest 5 (tests JS: extensión + web con jsdom + @testing-library/svelte; Zod solo como devDependency de tests de contrato), `pre-commit` 4 (hooks ruff+prettier); no mypy (Pyright único por decisión 20, ver `docs/TESTING.md` §5), no watchfiles en runtime. CI = GitHub Actions con matriz `ubuntu-latest` + `windows-latest`.
 
-**Checks (paridad con CI):** `uv run ruff check . && uv run ruff format --check .`, `uv run pyright`, `uv run pytest`, `pnpm lint`, `pnpm format:check`, `pnpm check`, `pnpm test`, `pnpm build`.
+**Checks (paridad con CI):** `uv run ruff check . && uv run ruff format --check .`, `uv run pyright`, `uv run pytest` (`-m "not smoke"` para la suite rápida), `pnpm lint`, `pnpm format:check`, `pnpm check`, `pnpm test`, `pnpm build`. Playbook completo + política STOP para modelos baratos: `docs/TESTING.md`.
 
 **Packaging:** Windows primero — PyInstaller onedir → Inno Setup. Binarios third-party bundled y pineados (FFmpeg LGPL preferible); THIRD_PARTY_NOTICES.md; licencia del proyecto Apache-2.0.
 
-**Suite de tests:** 316 (294 pytest en `apps/api` + 22 Vitest en `apps/extension` + 3 pytest live opt-in con `LMD_LIVE_NETWORK=1`; `apps/web` sin tests todavía)
+**Suite de tests:** 415 (308 pytest en `apps/api` — incluye smoke `-m smoke` con servidor real + 3 live opt-in con `LMD_LIVE_NETWORK=1` — + 85 Vitest en `apps/web` + 22 Vitest en `apps/extension`)
 
 ---
 

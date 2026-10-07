@@ -6,6 +6,19 @@
 
 ## Archivo de sesiones
 
+### Sesión 12 — 2026-10-07 — opencode/muse-spark vía OpenCode (PowerShell/Windows)
+
+- Fase 12 (Batch + history) implementada completa, backend + web. Sin commit todavía (pendiente decisión del usuario).
+- **Dominio nuevo:** `domain/urls.py::normalize_url` (lowercase scheme/host, sin puerto default, sin fragment, sin tracking params, query ordenada); `domain/dedupe.py` (`intent_fingerprint` con JSON canonical + `dedupe_key = sha256(url_norm + intent)`); `domain/output.py` (reglas cerradas `flat`/`by_extractor`/`by_date`, sanitización por segmento, prueba de contención).
+- **Schema v3:** columna `dedupe_key` + `idx_jobs_dedupe` + `idx_jobs_updated_at`; test de upgrade v2→v3 en `test_db.py` (filas viejas leen con key NULL y nunca matchean).
+- **Repositorio (`jobs.py`):** `create_job` acepta `dedupe_key`; `find_duplicate` (misma key + estado no-terminal; COMPLETED/FAILED/CANCELLED no cuentan); `clear_source_url` (NO toca `updated_at` → Regla 12.1); `delete_job`; `list_terminal_older_than`; `set_priority`; `reset_for_retry` (resetea intentos+errores, devuelve el job).
+- **State machine:** `CANCELLED → RETRY_WAIT` agregado (retry manual de cancelados accidentales; COMPLETED sigue terminal).
+- **Servicios:** `services/retention.py` (3 relojes sobre `updated_at`: `source_url_retention`, `temporary_retention_hours`, `history_retention_days`; sweep al startup + cada 6 h + endpoint manual; nunca crashea el sweep); `services/batch.py` (async, por-item: intent → rate limit → resolve en thread → plan → dedupe → create; publica `batch_submitted`). Notificaciones: sin servicio nuevo — el dashboard usa los eventos SSE existentes + Notification API (opt-in, `lib/notify.ts`).
+- **API:** `POST /jobs/batch` (1–100 items, resultados por índice), dedupe también en `POST /jobs` single (200 + `"duplicate": true`, resolve pasa a `asyncio.to_thread`), `POST /jobs/{id}/retry` (FAILED/CANCELLED/RECOVERY_REQUIRED; 409 si URL redactada), `POST /jobs/{id}/priority` (±100), `GET /jobs` con `limit/cursor/states` + `next_cursor` (cursor base64url; `response_model=None` → Regla 12.2), `POST /maintenance/cleanup`, `PATCH /settings` (solo claves runtime, `extra="forbid"`).
+- **Executor:** el output final va a `output_root` con la regla configurada (`LMD_OUTPUT_ROOT`, default `~/Downloads/Local Media Downloader`; `LMD_OUTPUT_RULE`); `data_dir/output` como fallback en tests. `bandwidth_limit_bps` solo reservado (reportado, no enforceado).
+- **Web:** pantalla Batch (textarea multi-URL + preset + prioridad + tabla de resultados), History con paginación/Load more + Retry por fila + Run cleanup, JobDetails con Retry + editor de prioridad, Settings con sección editable de retention/output + toggle de notificaciones; `lib/presets.ts` compartido (Resolve refactorizado a usarlo).
+- **Gates:** pytest 294 passed/3 skipped, pyright 0, ruff check+format clean, pnpm lint/format:check/check/test/build verdes (22 vitest). Reglas nuevas 12.1, 12.2; 9.1 archivada por rotación.
+
 ### Sesión 10 — 2026-10-06 — opencode/fledge-alpha-free vía OpenCode (PowerShell/Windows)
 
 - Fase 10 (Security hardening) — nuevo `security.py`: token de instalación persistido en la tabla `settings` (`secrets.token_urlsafe`, comparación con `compare_digest`, registrado como secreto para redacción), validación de `Host`/`Origin` strictly-loopback (anti DNS-rebinding), y `assert_loopback_host` que aborta el arranque con `LMD_HOST=0.0.0.0` (verificado e2e).

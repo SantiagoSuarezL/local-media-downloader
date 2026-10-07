@@ -29,6 +29,10 @@ pnpm lint && pnpm format:check && pnpm check && pnpm test && pnpm build
 The `pre-commit` hooks mirror the first two groups, so most failures surface
 before the commit is created.
 
+`docs/TESTING.md` is the gate playbook: exact order, what each suite covers,
+and the mandatory stop-and-handoff policy when a gate is red (plus the
+per-phase gate matrix for the remaining phases).
+
 ## Layout
 
 ```text

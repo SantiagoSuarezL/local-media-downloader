@@ -50,3 +50,4 @@ typeCheckingMode = "standard"
 minversion = "8.0"
 testpaths = ["apps/api/tests"]
 addopts = "-ra --strict-markers --strict-config"
+markers = ["smoke: boots a real server process (slower, hermetic, no network needed)"]

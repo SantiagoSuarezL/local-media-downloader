@@ -778,6 +778,10 @@ URLs may be considered sensitive and should be configurable for redaction.
 
 ## 24. Testing requirements
 
+Gate enforcement (commands, stop policy, per-phase matrix) lives in
+`docs/TESTING.md`, which is normative for every change. This section states
+*what* must be covered; `TESTING.md` states *how* it is verified.
+
 ### Unit
 
 - URL validation;
@@ -803,6 +807,11 @@ Frontend:
 - end-to-end tests for critical flows;
 - do not add a heavy testing framework by default.
 
+Implemented as: Vitest + jsdom + @testing-library/svelte in `apps/web`
+(85 tests: lib units, Zod `.strict()` API contracts, JobCard/Batch
+components) and Vitest in `apps/extension`. Zod is a devDependency only —
+contract validation never ships to the dashboard bundle.
+
 ### Integration
 
 - yt-dlp invocation;
@@ -826,6 +835,15 @@ extension
 ```
 
 Use test fixtures and permitted/public test media.
+
+### Executable smoke test
+
+One test must boot the real server process against an isolated data directory
+and validate the HTTP contract over real HTTP (status codes, authentication
+boundary, persistence across restart). It must stay hermetic: no network
+downloads, no fixed ports, no shared state with other tests. Currently
+`apps/api/tests/test_smoke_e2e.py` (marker `smoke`); Fase 16 extends it to
+the installed bundle.
 
 ---
 

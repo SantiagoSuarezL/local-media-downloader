@@ -10,6 +10,21 @@ Formato de cada entrada: fecha, target/módulo, observación, hipótesis, estado
 
 ## En curso
 
+- **2026-10-07 — Batch de 100 URLs largas podría superar el límite de 64 KiB.**
+  `POST /api/v1/jobs/batch` acepta hasta 100 items (`BatchRequest`, `max_length=100`)
+  pero el middleware rechaza bodies > 64 KiB (`LMD_MAX_REQUEST_BYTES`) con 413.
+  100 URLs de longitud máxima (2048) + intents ≈ 225 KB: un batch legítimo pero
+  extremo sería rechazado. Con URLs reales (~40-100 chars) un batch lleno pesa
+  ~25-30 KB y pasa sin problema, así que hoy no se toca el límite.
+  *Hipótesis:* el riesgo crece si los intents engordan (Fase 13 presets, Fase 14
+  processing con trim/crop/resize) o si alguien pega URLs larguísimas.
+  *Estado:* abierto — monitorear al cerrar Fase 13/14: si un preset nuevo hace
+  que el batch típico se acerque a 64 KiB, subir el límite o paginar el submit
+  del dashboard es la corrección (y lleva test en `test_smoke_e2e.py`).
+  *Acción:* ninguna todavía; la sonda 413 del smoke ya cubre el comportamiento
+  actual (va última y con cliente fresco: el 413 se responde sin consumir el
+  body y reutilizar ese keep-alive envenena la siguiente petición).
+
 - **2026-10-06 — Extensión y flujo de token nunca ejecutados en un browser real.**
   `apps/extension` (popup, handoff, health) y el camino de autenticación de Fase 10
   (`<meta name="lmd-token">` → header en `apps/web/src/lib/api.ts`, cookie
