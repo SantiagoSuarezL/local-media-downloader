@@ -34,7 +34,15 @@ jobs:
 
       - name: Install FFmpeg (ubuntu)
         if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+        # apt ships a 2-year-old FFmpeg whose WebP demuxer/decoder cannot
+        # roundtrip animated WebP (reads 0x0 dims, decode error rate 1), so
+        # the sticker tests can only run against a modern static build —
+        # the same class of binary the Windows bundle pins.
+        run: |
+          curl --fail --retry 3 -sL https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz -o /tmp/ffmpeg-static.tar.xz
+          tar -xf /tmp/ffmpeg-static.tar.xz -C /tmp
+          sudo install /tmp/ffmpeg-*-amd64-static/ffmpeg /tmp/ffmpeg-*-amd64-static/ffprobe /usr/local/bin/
+          ffmpeg -version | head -1
 
       - name: Ruff lint
         run: uv run ruff check .
