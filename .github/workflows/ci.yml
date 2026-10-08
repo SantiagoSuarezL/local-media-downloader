@@ -45,6 +45,17 @@ jobs:
           ffmpeg -version | head -1
           ffmpeg -hide_banner -h encoder=libsvtav1 | head -2
 
+      - name: Install FFmpeg (windows)
+        if: matrix.os == 'windows-latest'
+        # Same pinned 9.x class as ubuntu: without it the adapter tests skip
+        # on Windows and only run on ubuntu.
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n9.0-latest-win64-gpl-9.0.zip" -OutFile "$env:RUNNER_TEMP\ffmpeg.zip"
+          Expand-Archive -Path "$env:RUNNER_TEMP\ffmpeg.zip" -DestinationPath "$env:RUNNER_TEMP\ffmpeg"
+          $bin = Get-ChildItem -Path "$env:RUNNER_TEMP\ffmpeg" -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1 -ExpandProperty DirectoryName
+          Add-Content -Path $env:GITHUB_PATH -Value $bin
+          & "$bin\ffmpeg.exe" -version | Select-Object -First 1
+
       - name: Ruff lint
         run: uv run ruff check .
 
