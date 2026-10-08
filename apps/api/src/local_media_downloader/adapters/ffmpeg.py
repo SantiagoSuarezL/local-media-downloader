@@ -441,12 +441,10 @@ class FFmpegProcessor:
             video.width != 512 or video.height != 512 or result.stat().st_size > 500_000
         ):
             _LOGGER.warning(
-                "sticker_limits_exceeded",
-                extra={
-                    "width": video.width,
-                    "height": video.height,
-                    "size_bytes": result.stat().st_size,
-                },
+                "sticker_limits_exceeded width=%s height=%s size_bytes=%s",
+                video.width,
+                video.height,
+                result.stat().st_size,
             )
             result.unlink(missing_ok=True)
             raise ExtractionError(
