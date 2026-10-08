@@ -15,7 +15,7 @@
 **Resolución de binarios (no depender del PATH global):**
 - `yt-dlp` 2026.8.19 es dependencia **Python** del uv env; se invoca siempre como `[sys.executable, "-m", "yt_dlp", ...]`, jamás como `yt-dlp` del PATH.
 - **Deno 2.9.6 vía pnpm** (devDependency raíz + `allowBuilds: { deno: true }` en `pnpm-workspace.yaml`, porque su binario se descarga en postinstall y pnpm 11 bloquea build scripts por defecto; `onlyBuiltDependencies` ya no existe en pnpm 11 → Ref. 10.3). Se le pasa a yt-dlp con `--js-runtimes deno:<path>`.
-- Orden de búsqueda en `adapters/tool_paths.py`: override explícito → `node_modules/.bin` del workspace → venv del uv → PATH. En producción (Fase 16) el orden pasa a ser bundle → venv → PATH.
+- Orden de búsqueda en `adapters/tool_paths.py`: override explícito → `bin/` del bundle frozen (PyInstaller onedir, Fase 16; vacío en desarrollo) → `node_modules/.bin` del workspace → venv del uv → PATH. `web_dist` es frozen-aware (`config.default_web_dist`, `LMD_WEB_DIST` overridea).
 - FFmpeg/FFprobe: `LMD_FFMPEG` > venv del uv > PATH.
 - Frontend: Svelte 5, Vite, TypeScript, Tailwind CSS, pnpm
 - Extension: TypeScript, Manifest V3, Vite
@@ -45,7 +45,7 @@ Monolito modular local-first con scheduler durable de jobs (asyncio, sin Celery/
 
 **Packaging:** Windows primero — PyInstaller onedir → Inno Setup. Binarios third-party bundled y pineados (FFmpeg LGPL preferible); THIRD_PARTY_NOTICES.md; licencia del proyecto Apache-2.0.
 
-**Suite de tests:** 645 (535 pytest ejecutables en `apps/api` — incluye smoke `-m smoke` con servidor real + 3 live opt-in con `LMD_LIVE_NETWORK=1` — + 88 Vitest en `apps/web` + 22 Vitest en `apps/extension`)
+**Suite de tests:** 652 (542 pytest ejecutables en `apps/api` — incluye smoke `-m smoke` con servidor real + 3 live opt-in con `LMD_LIVE_NETWORK=1` — + 88 Vitest en `apps/web` + 22 Vitest en `apps/extension`)
 
 ---
 

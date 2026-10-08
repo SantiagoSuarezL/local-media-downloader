@@ -7,6 +7,7 @@ environment variables prefixed with ``LMD_`` (e.g. ``LMD_PORT=9000``).
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -30,7 +31,27 @@ _DEFAULT_DATA_DIR = Path("data")
 # the packaged app (Phase 16) resolves it from the bundle, and overridable with
 # LMD_WEB_DIST. When the directory is absent the API still runs headless (tests,
 # dev with the Vite dev server on :5173).
-_DEFAULT_WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
+#
+# In a PyInstaller onedir bundle ``__file__`` points inside ``_internal`` (or a
+# zip), so the dev derivation would miss the bundled ``web/`` directory placed
+# next to the executable by the spec. Frozen processes resolve next to
+# ``sys.executable`` first, then ``sys._MEIPASS`` (onefile layouts), and only
+# then fall back to the source-tree derivation.
+_DEV_WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
+
+
+def default_web_dist() -> Path:
+    """Default directory of the built web UI, frozen-aware (Phase 16)."""
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        for candidate in (exe_dir / "web", Path(getattr(sys, "_MEIPASS", exe_dir)) / "web"):
+            if (candidate / "index.html").is_file():
+                return candidate
+        return exe_dir / "web"
+    return _DEV_WEB_DIST
+
+
+_DEFAULT_WEB_DIST = _DEV_WEB_DIST
 
 # Final media goes here, never inside the job directory (which holds temporary
 # artifacts that retention may delete). Operator-configured, never settable
@@ -45,7 +66,7 @@ class Settings:
     log_level: str = _DEFAULT_LOG_LEVEL
     data_dir: Path = field(default_factory=lambda: _DEFAULT_DATA_DIR)
     # Built web UI served from the same loopback origin (Phase 8).
-    web_dist: Path = field(default_factory=lambda: _DEFAULT_WEB_DIST)
+    web_dist: Path = field(default_factory=default_web_dist)
     # Maximum attempts at automatic recovery are Phase 7; keep the surface small.
     max_health_tool_timeout_seconds: float = 2.0
     # Scheduler budget (Phase 6).
@@ -89,7 +110,7 @@ class Settings:
             port=int(os.environ.get("LMD_PORT", str(_DEFAULT_PORT))),
             log_level=os.environ.get("LMD_LOG_LEVEL", _DEFAULT_LOG_LEVEL).upper(),
             data_dir=Path(os.environ.get("LMD_DATA_DIR", str(_DEFAULT_DATA_DIR))),
-            web_dist=Path(os.environ.get("LMD_WEB_DIST", str(_DEFAULT_WEB_DIST))),
+            web_dist=Path(os.environ.get("LMD_WEB_DIST", str(default_web_dist()))),
             max_health_tool_timeout_seconds=float(os.environ.get("LMD_HEALTH_TOOL_TIMEOUT", "2.0")),
             scheduler_max_active=int(os.environ.get("LMD_SCHED_MAX_ACTIVE", "3")),
             scheduler_max_downloads=int(os.environ.get("LMD_SCHED_MAX_DOWNLOADS", "2")),

@@ -5,8 +5,8 @@
 ## Estado del proyecto
 
 **Proyecto:** local-media-downloader
-**Fase actual:** 15 (cerrada en Sesión 23 — baselines verificados: boot/latencias/cola/SQLite/disco/FFmpeg/UI; download-throughput diferido a red en vivo)
-**Próxima fase:** 16 — Packaging
+**Fase actual:** 16 — Packaging (ABIERTA: groundwork commiteado en Sesión 24; pendiente smoke del bundle frozen + checklist browser real)
+**Próxima fase:** 17 — Release hardening (tras cerrar 16)
 
 ## Tabla de archivos
 

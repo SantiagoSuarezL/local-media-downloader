@@ -10,6 +10,18 @@ Formato de cada entrada: fecha, target/módulo, observación, hipótesis, estado
 
 ## En curso
 
+- **2026-10-08 — Smoke del bundle frozen pendiente (Fase 16 sigue abierta).**
+  Target `apps/api/lmd.spec` + `lmd_entry.py` + `packaging/stage_bundle.ps1`.
+  El spec portable compila (PyInstaller 6.22.3 onedir OK, 2 builds); el primer
+  boot frozen falló por imports relativos (`__main__.py` top-level → shim
+  `lmd_entry.py`); el segundo intento se colgó en el smoke y dejó 5 `ffmpeg`
+  zombie (tool probes del health) → matados, `dist/`+`build/` eliminados por
+  presión de RAM. Sin reintentar por decisión del usuario: commitear liviano.
+  *Estado:* abierto — reintentar con recursos libres: boot del exe + `/` sirve
+  `index.html` (prueba `default_web_dist` frozen) + `/api/v1/health` con
+  binarios de `bin/` + checklist browser real de la entrada 2026-10-06.
+  *Acción:* ninguna todavía; no bloquear el commit del groundwork por esto.
+
 - **2026-10-08 — Primer `/health` tarda ~12.5 s por los tool probes en frío.**
   Target `app.py`/`diagnostics.py` (`detect_tools` en el path de health).
   Boot→listen 0.56–1.64 s pero →first 200 10–22 s: el delta son los probes

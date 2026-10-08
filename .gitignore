@@ -34,6 +34,8 @@ MANIFEST
 #   before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
+# Exception: the hand-maintained onedir spec is a source file (Phase 16).
+!apps/api/lmd.spec
 
 # Installer logs
 pip-log.txt
