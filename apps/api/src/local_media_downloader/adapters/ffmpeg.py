@@ -446,6 +446,35 @@ class FFmpegProcessor:
                 video.height,
                 result.stat().st_size,
             )
+            # DIAG-TEMP: dump the raw video stream block so CI shows what this
+            # ffprobe build reports (width/coded_width for animated WebP).
+            try:
+                import json as _json
+                import subprocess as _subprocess
+
+                from .tool_paths import ffprobe_argv as _ffprobe_argv
+
+                _dumped = _subprocess.run(
+                    [
+                        *_ffprobe_argv(),
+                        "-v",
+                        "error",
+                        "-print_format",
+                        "json",
+                        "-show_streams",
+                        str(result),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=30.0,
+                    check=False,
+                )
+                _streams = _json.loads(_dumped.stdout or "{}").get("streams", [])
+                _LOGGER.warning(
+                    "sticker_stream_dump %s", _json.dumps(_streams[0] if _streams else {})
+                )
+            except Exception:
+                pass
             result.unlink(missing_ok=True)
             raise ExtractionError(
                 ErrorCode.VALIDATION_FAILED, "Sticker exceeds 512x512 or 500 KB.", retryable=False

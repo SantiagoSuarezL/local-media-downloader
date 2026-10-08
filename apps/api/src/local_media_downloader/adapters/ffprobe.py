@@ -146,12 +146,17 @@ def _parse_stream(raw: dict[str, Any]) -> StreamProbe:
         index = int(raw.get("index", 0))
     except (TypeError, ValueError):
         index = 0
+    # Older ffprobe builds report width/height 0 for animated WebP while the
+    # coded dimensions are correct; prefer container dims, fall back to coded.
+    # (0 is never a real dimension, so `or` is safe here.)
+    width = _as_int(raw.get("width")) or _as_int(raw.get("coded_width"))
+    height = _as_int(raw.get("height")) or _as_int(raw.get("coded_height"))
     return StreamProbe(
         index=index,
         kind=kind,
         codec_name=raw.get("codec_name") if isinstance(raw.get("codec_name"), str) else None,
-        width=_as_int(raw.get("width")),
-        height=_as_int(raw.get("height")),
+        width=width,
+        height=height,
         fps=_parse_fps(raw) if kind is StreamKind.VIDEO else None,
         sample_rate=_as_int(raw.get("sample_rate")),
         channels=_as_int(raw.get("channels")),
