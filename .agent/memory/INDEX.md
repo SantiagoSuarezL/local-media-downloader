@@ -5,8 +5,8 @@
 ## Estado del proyecto
 
 **Proyecto:** local-media-downloader
-**Fase actual:** 16 (cerrada en Sesión 25 con 2 reservas de hardware documentadas en `observations.md`: smoke del bundle en otra máquina/CI + checklist browser por el usuario)
-**Próxima fase:** 17 — Release hardening
+**Fase actual:** 17 (cerrada en Sesión 26: HANDOFF verificado, test cancel-running endurecido, gates verdes)
+**Próxima fase:** ninguna — MVP completo salvo 2 reservas de hardware en `observations.md` (smoke del bundle en otra máquina/CI + checklist browser por el usuario)
 
 ## Tabla de archivos
 

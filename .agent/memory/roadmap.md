@@ -25,7 +25,7 @@
 - [x] **Fase 14** — Advanced processing (trim, resize, crop, bitrate, framerate, codec h264/vp9/av1, loudnorm, subtítulos/metadata modelados y rechazados con UNSUPPORTED_INTENT + matriz §528) — ver `session_log.md` Sesión 21
 - [x] **Fase 15** — Performance engineering (baselines verificados: startup, memoria, latencia API/cola, SQLite, disco, FFmpeg, UI; download-throughput diferido a red en vivo) — ver `session_log.md` Sesión 23
 - [x] **Fase 16** — Packaging (Windows primero: PyInstaller onedir → Inno Setup, binarios bundled pineados, THIRD_PARTY_NOTICES) — ver `session_log.md` Sesión 25. Cierre con 2 reservas documentadas en `observations.md` (smoke del exe en máquina con resto/CI + checklist browser real por el usuario).
-- [ ] **Fase 17** — Release hardening (reliability, seguridad, UX, compat Chromium/Firefox/Windows)
+- [x] **Fase 17** — Release hardening (reliability, seguridad, UX, compat Chromium/Firefox/Windows) — ver `session_log.md` Sesión 26. Cierre por verificación: todos los bullets ya cubiertos por tests existentes salvo cancel-running (nuevo `test_cancel_running_job` endurecido: CANCELLED estricto + no-orphans). Quedan las 2 reservas de Fase 16 en `observations.md`.
 
 ---
 

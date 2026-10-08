@@ -12,17 +12,18 @@
 
 ## ÚLTIMA SESIÓN (detalle completo)
 
-`Sesión 25 — 2026-10-08 — opencode/muse-spark (cierre Fase 16 con reservas de hardware) vía OpenCode`
+`Sesión 26 — 2026-10-08 — opencode/muse-spark (revisión HANDOFF + cierre Fase 17) vía OpenCode`
 
-- Procesos: 24 `python.exe` del Python del sistema (`AppData\Programs\Python312`, NO del `.venv` del proyecto), todos hijos `multiprocessing.spawn` huérfanos (0/24 padres vivos), 4–15 MB c/u. No son del proyecto → no se tocan. Sin restos del bundle (exe/ffmpeg limpio). `dist/`+`build/` eliminados (gitignored).
-- Cierre Fase 16 con 2 reservas documentadas (la laptop no aguanta el smoke del bundle: 2 intentos caídos por recursos): (1) smoke del exe frozen — compilación probada 3× OK, boot real pendiente en máquina con resto/CI; (2) checklist browser real (Chrome/Firefox) — requiere humano, 5 minutos. Cómo re-verificar: `pnpm build` + pyinstaller con spec + `stage_bundle.ps1` + boot con `LMD_DATA_DIR` temporal (comandos en observations.md). Sin cambios de código en esta sesión; gates dev ya verdes sobre el mismo árbol (Sesión 24).
-- `uv run --package local-media-downloader-api --extra build` desde repo root: compila sin podar dev deps (lección Sesión 24).
-- Memoria rotada (24→archive verbatim + historial); `roadmap.md` Fase 16 ✅ con reservas; `graphify update .` + commit + push. Siguiente: Fase 17 Release hardening (y las 2 reservas cuando haya máquina/restos).
+- Revisión del HANDOFF: `git status/diff` mostraba 1 archivo sin commitear (`test_scheduler.py`, +42, cero código) → ningún test viejo debilitado. Pero el test nuevo era débil: aceptaba `FAILED` además de `CANCELLED` (enmascara un path de cancelación roto), no verificaba orphans, imports inline y sin `try/finally` para `scheduler.stop()`.
+- Fix quirúrgico solo al test: `test_cancel_running_job` ahora exige `CANCELLED` estricto + `executor.active_run == 0` + `scheduler._active == {}` + `scheduler._cancels == {}` (blinda cancel-running y no-orphans); estable 5/5 corridas. Sin cambios de contrato (test-only, sin sync frontend).
+- Gates TODO VERDE en orden: ruff check+format (77 files), pyright 0, pytest 542 passed/3 skipped + smoke 1 passed, pnpm lint/format:check/check/test (22 ext + 88 web = 110)/build. Total 653. Fase 17 marcada ✅ en `roadmap.md`; las 2 reservas de Fase 16 (smoke bundle + browser real) siguen abiertas en `observations.md`.
+- Memoria rotada (25→archive verbatim + historial); `graphify update .` + commit + push. Siguiente: reservas de hardware cuando haya máquina/restos + humano para browser.
 
 ---
 
 ## HISTORIAL RELEVANTE (comprimido, detalle completo en session_log_archive.md)
 
+- `Sesión 25 — 2026-10-08` — Cierre Fase 16 con 2 reservas de hardware (smoke bundle + browser real, en observations.md); sin código; gates dev verdes Sesión 24.
 - `Sesión 24 — 2026-10-08` — Revisión HANDOFF Fase 16: spec portable, web_dist/bin frozen-aware, entry shim, staging script; bundle compila 2× pero smoke colgado → Fase 16 abierta; 652 tests verdes.
 - `Sesión 23 — 2026-10-08` — Verificación HANDOFF + cierre real Fase 15 (re-medición hermética: boot 0.56–1.64 s, árbol ~82 MB WS; 22.5 MB refutado); 645 tests; gates verdes.
 - `Sesión 22 — 2026-10-08` — Cierre Fase 15 declarado (startup ~10.3 s, WS ~22.5 MB, gates verdes); Sesión 23 lo auditó: memoria era un solo proceso y faltaban 8/9 bullets → re-medido y corregido.

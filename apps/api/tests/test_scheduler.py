@@ -308,6 +308,54 @@ def test_cancel_a_queued_job(scheduler_env):
     assert cancelled.state is JobState.CANCELLED
 
 
+def test_cancel_running_job(scheduler_env):
+    """Cancel a job that has already started (scheduler sets DOWNLOADING before run)."""
+    conn, _bus, executor, scheduler, _tmp_path = scheduler_env
+    job = jobs.create_job(
+        conn,
+        source_url="https://example.com/v",
+        execution_plan_json=_make_plan_json(),
+        state=JobState.QUEUED,
+    )
+
+    async def main() -> None:
+        scheduler.start()
+        try:
+            # Wait until the worker has picked the job up.
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                current = jobs.get_job(conn, job.id)
+                if current is not None and current.state in {
+                    JobState.DOWNLOADING,
+                    JobState.PROCESSING,
+                }:
+                    break
+                await asyncio.sleep(0.02)
+            else:
+                pytest.fail("Job did not reach DOWNLOADING/PROCESSING state")
+            # Request cancel while running: cooperative path must end CANCELLED.
+            scheduler.request_cancel(job.id)
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                current = jobs.get_job(conn, job.id)
+                if current is not None and current.state is JobState.CANCELLED:
+                    break
+                await asyncio.sleep(0.02)
+            else:
+                pytest.fail("Job did not reach CANCELLED state after cancel")
+        finally:
+            await scheduler.stop()
+
+    asyncio.run(main())
+    final = jobs.get_job(conn, job.id)
+    assert final is not None
+    assert final.state is JobState.CANCELLED
+    # No orphan workers: the executor unwound and the scheduler dropped tracking.
+    assert executor.active_run == 0
+    assert scheduler._active == {}
+    assert scheduler._cancels == {}
+
+
 def test_failed_job_with_bounded_retry_eventually_failed(scheduler_env):
     conn, _bus, _executor, scheduler, _tmp_path = scheduler_env
 
