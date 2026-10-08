@@ -120,9 +120,14 @@ async function main(): Promise<void> {
     const validation = validateMediaUrl(tab.url)
     if (pageHint) {
       pageHint.classList.toggle('error', !validation.ok)
-      pageHint.textContent = validation.ok
-        ? 'Ready to send to the local service.'
-        : (validation.reason ?? '')
+      if (!validation.ok) {
+        pageHint.textContent = validation.reason ?? ''
+      } else if (status === 'connected') {
+        pageHint.textContent = 'Ready to send to the local service.'
+      }
+      // When offline, pageHint already carries the probe failure detail from
+      // probe(): overwriting it with "Ready" would hide the reason, so a
+      // failed probe keeps its message on screen.
     }
   } catch (error) {
     if (pageUrl) {

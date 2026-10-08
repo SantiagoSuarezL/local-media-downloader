@@ -4,12 +4,20 @@
  * The popup must never hang: a service that is down (or a port that is wrong)
  * has to render "Offline" quickly, so the probe carries its own timeout. A
  * network failure is an expected state here, not an exception to propagate.
+ *
+ * One retry on thrown errors only (abort, connection refused): the health
+ * endpoint re-runs tool detection when its 5 s cache expires, and on a loaded
+ * machine that can exceed a single timeout while the service is fine. An HTTP
+ * answer — even an error status — is definitive and is never retried.
  */
 
 import type { HealthDto } from '@lmd/contracts'
 import { normalizeServiceUrl } from '../lib/handoff'
 
 export const DEFAULT_TIMEOUT_MS = 1500
+
+/** Attempts per probe: first try plus one retry on transient failures. */
+const MAX_ATTEMPTS = 2
 
 export type ConnectionStatus = 'connected' | 'offline'
 
@@ -42,37 +50,39 @@ export async function checkHealth(
     }
   }
 
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
-  try {
-    const response = await fetchImpl(`${base}/api/v1/health`, {
-      method: 'GET',
-      cache: 'no-store',
-      signal: controller.signal,
-    })
-    if (!response.ok) {
+  let lastDetail = 'Could not reach the local service.'
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      const response = await fetchImpl(`${base}/api/v1/health`, {
+        method: 'GET',
+        cache: 'no-store',
+        signal: controller.signal,
+      })
+      if (!response.ok) {
+        return {
+          status: 'offline',
+          detail: `The service answered ${response.status} ${response.statusText}.`,
+          baseUrl: base,
+        }
+      }
+      const body = (await response.json()) as Partial<HealthDto>
       return {
-        status: 'offline',
-        detail: `The service answered ${response.status} ${response.statusText}.`,
+        status: 'connected',
+        detail:
+          body.status === 'degraded'
+            ? 'Connected, but the service reports degraded.'
+            : 'Connected.',
+        version: body.version,
         baseUrl: base,
       }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      lastDetail = `Could not reach the local service (${reason}).`
+    } finally {
+      clearTimeout(timer)
     }
-    const body = (await response.json()) as Partial<HealthDto>
-    return {
-      status: 'connected',
-      detail:
-        body.status === 'degraded' ? 'Connected, but the service reports degraded.' : 'Connected.',
-      version: body.version,
-      baseUrl: base,
-    }
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error)
-    return {
-      status: 'offline',
-      detail: `Could not reach the local service (${reason}).`,
-      baseUrl: base,
-    }
-  } finally {
-    clearTimeout(timer)
   }
+  return { status: 'offline', detail: lastDetail, baseUrl: base }
 }

@@ -561,3 +561,9 @@ con los 13 nuevos: 5 parse_probe + 8 acceptance ffmpeg). JS sin cambios.
 - Usuario pidió: ffmpeg en el job backend de CI + apagar servidor de prueba (PID 13724 ya inexistente; :8765 lo tenía su propio backend). Reportó 403 en `/api/v1/jobs` y `/api/v1/events` desde :5173.
 - Root cause 403: proxy Vite con `changeOrigin: false` → backend veía `Host: 127.0.0.1:5173`, `validate_host(expected_port=8765)` rechazaba por puerto. Fix: `changeOrigin: true` + comentario que cita el check (Regla 17.2). En dev el token va por cookie (abrir :8765 una vez la fija).
 - CI: paso `Install FFmpeg (ubuntu)` solo en ubuntu → ~40 skips pasan a correr. Gates frontend re-corridos (lint/format:check/check/test 110/build verdes). Commit + push, CI vigilado 4/4.
+
+### Sesión 29 — 2026-10-08 — opencode/muse-spark (sticker webp interop + CI 4/4 con cobertura total) vía OpenCode
+
+- Instalar ffmpeg en CI ubuntu destapó `sticker-webp` rojo: ffprobe 0x0 + decoder "Decode error rate 1" con archivo VÁLIDO (canvas VP8X 512x512, 10 KB). Forense local (BtbN 8.1): libwebp emite ANMF sub-frames con offset (recorta bordes transparentes del pad) y el decoder nativo ≤8.x los rechaza; 9.x sí los lee.
+- Fix en 2 partes: (1) CI ubuntu+windows con BtbN n9.0 static pineado (misma clase que el bundle 9.0.1; apt no servía y johnvansickle-7.0.2 no trae libsvtav1 que exige el test AV1); (2) robustez real: dims 0→None en parse (contrato probe.py) + fallback coded + `validate()` rellena dims desconocidas desde frames decodeados (showinfo, fail closed) + warning con actuals en el breach.
+- CI final 4/4 verde: 547 passed en AMBOS OS (0 skips ffmpeg; solo 3 live opt-in). Total 657. Regla 17.3. Build 8.1 temporal (~200 MB) eliminado del TEMP.

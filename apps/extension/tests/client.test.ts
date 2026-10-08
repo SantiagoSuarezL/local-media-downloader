@@ -76,4 +76,57 @@ describe('checkHealth', () => {
     })
     expect(result.status).toBe('offline')
   })
+
+  it('retries once when the first attempt aborts and then connects', async () => {
+    let calls = 0
+    const fetchImpl = ((_url: string, init?: RequestInit) => {
+      calls += 1
+      if (calls === 1) {
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new Error('aborted')))
+        })
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ status: 'ok', version: '0.1.0' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+    }) as unknown as typeof fetch
+    const result = await checkHealth('http://127.0.0.1:8765', {
+      timeoutMs: 10,
+      fetchImpl,
+    })
+    expect(result.status).toBe('connected')
+    expect(calls).toBe(2)
+  })
+
+  it('does not retry an HTTP error answer', async () => {
+    let calls = 0
+    const result = await checkHealth('http://127.0.0.1:8765', {
+      fetchImpl: (async () => {
+        calls += 1
+        return new Response('', { status: 503, statusText: 'Service Unavailable' })
+      }) as unknown as typeof fetch,
+    })
+    expect(result.status).toBe('offline')
+    expect(result.detail).toContain('503')
+    expect(calls).toBe(1)
+  })
+
+  it('reports the last failure after two aborted attempts', async () => {
+    let calls = 0
+    const result = await checkHealth('http://127.0.0.1:8765', {
+      timeoutMs: 10,
+      fetchImpl: ((_url: string, init?: RequestInit) => {
+        calls += 1
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new Error(`aborted-${calls}`)))
+        })
+      }) as unknown as typeof fetch,
+    })
+    expect(result.status).toBe('offline')
+    expect(result.detail).toContain('aborted-2')
+    expect(calls).toBe(2)
+  })
 })
