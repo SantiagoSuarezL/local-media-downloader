@@ -29,9 +29,10 @@ from .tool_paths import ffmpeg_argv
 
 _LOGGER = get_logger("processor.ffmpeg")
 
-# First `s:WxH` of a showinfo line: decoded-frame dimensions, stable across
-# ffmpeg versions (e.g. `[Parsed_showinfo_0 ...] n: 0 ... s:512x512 ...`).
-_DECODED_DIMS = re.compile(r"s:(\d+)x(\d+)")
+# First `s:WxH` of a showinfo line: decoded-frame dimensions, e.g.
+# `[Parsed_showinfo_0 ...] n: 0 ... s:512x512 ...` (spacing after `s:`
+# varies by build, hence `\s*`).
+_DECODED_DIMS = re.compile(r"s:\s*(\d+)x(\d+)")
 
 DEFAULT_TIMEOUT = 600.0
 
@@ -632,9 +633,15 @@ def _decoded_frame_dims(path: Path, *, timeout: float) -> tuple[int, int] | None
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         return None
     if completed.returncode != 0:
+        _LOGGER.warning(
+            "decode_dims_failed rc=%s stderr=%s",
+            completed.returncode,
+            (completed.stderr or "")[-300:],
+        )
         return None
     match = _DECODED_DIMS.search(completed.stderr or "")
     if match is None:
+        _LOGGER.warning("decode_dims_unparsed stderr=%s", (completed.stderr or "")[-300:])
         return None
     try:
         width, height = int(match.group(1)), int(match.group(2))
