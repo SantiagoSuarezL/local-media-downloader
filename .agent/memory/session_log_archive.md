@@ -540,3 +540,10 @@ con los 13 nuevos: 5 parse_probe + 8 acceptance ffmpeg). JS sin cambios.
 - Cierre Fase 16 con 2 reservas documentadas (la laptop no aguanta el smoke del bundle: 2 intentos caídos por recursos): (1) smoke del exe frozen — compilación probada 3× OK, boot real pendiente en máquina con resto/CI; (2) checklist browser real (Chrome/Firefox) — requiere humano, 5 minutos. Cómo re-verificar: `pnpm build` + pyinstaller con spec + `stage_bundle.ps1` + boot con `LMD_DATA_DIR` temporal (comandos en observations.md). Sin cambios de código en esta sesión; gates dev ya verdes sobre el mismo árbol (Sesión 24).
 - `uv run --package local-media-downloader-api --extra build` desde repo root: compila sin podar dev deps (lección Sesión 24).
 - Memoria rotada (24→archive verbatim + historial); `roadmap.md` Fase 16 ✅ con reservas; `graphify update .` + commit + push. Siguiente: Fase 17 Release hardening (y las 2 reservas cuando haya máquina/restos).
+
+### Sesión 26 — 2026-10-08 — opencode/muse-spark (revisión HANDOFF + cierre Fase 17) vía OpenCode
+
+- Revisión del HANDOFF: `git status/diff` mostraba 1 archivo sin commitear (`test_scheduler.py`, +42, cero código) → ningún test viejo debilitado. Pero el test nuevo era débil: aceptaba `FAILED` además de `CANCELLED` (enmascara un path de cancelación roto), no verificaba orphans, imports inline y sin `try/finally` para `scheduler.stop()`.
+- Fix quirúrgico solo al test: `test_cancel_running_job` ahora exige `CANCELLED` estricto + `executor.active_run == 0` + `scheduler._active == {}` + `scheduler._cancels == {}` (blinda cancel-running y no-orphans); estable 5/5 corridas. Sin cambios de contrato (test-only, sin sync frontend).
+- Gates TODO VERDE en orden: ruff check+format (77 files), pyright 0, pytest 542 passed/3 skipped + smoke 1 passed, pnpm lint/format:check/check/test (22 ext + 88 web = 110)/build. Total 653. Fase 17 marcada ✅ en `roadmap.md`; las 2 reservas de Fase 16 (smoke bundle + browser real) siguen abiertas en `observations.md`.
+- Memoria rotada (25→archive verbatim + historial); `graphify update .` + commit + push. Siguiente: reservas de hardware cuando haya máquina/restos + humano para browser.

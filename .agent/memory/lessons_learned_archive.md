@@ -136,3 +136,23 @@ siguen corriendo en CI.
 **Solución:** `pnpm-workspace.yaml` usa `allowBuilds: { deno: true }` con comentario que explica la migración; verificado con un clon limpio (`git clone --depth 1` + `rm -rf node_modules` + los 5 pasos del job frontend) antes de pushear. Codemod oficial: `pnpx codemod run pnpm-v10-to-v11`.
 
 **Regla de Oro:** *Un `pnpm install` que pasa en tu máquina no prueba nada si los `node_modules` ya existían: reproducí los pasos de CI en un clon limpio antes de declarar verde cualquier job de JS. Y si cambiás de versión mayor de pnpm, los settings de build scripts se renombran — no se borran en silencio.*
+
+### Regla de Oro 12.1 [Retention / tiempo]: el mantenimiento nunca toca `updated_at`
+
+**Error:** `clear_source_url` actualizaba `updated_at` al redactar. Como el sweep corre redact-antes-que-borrado en la misma pasada, el job redactado pasaba a verse "recién modificado" y `list_terminal_older_than` ya no lo encontraba: `history_retention_days` nunca borraba nada que antes hubiera sido redactado. Lo cazó `test_retention_deletes_old_history_rows`.
+
+**Root Cause:** `updated_at` tiene dos lectores con semánticas distintas: la UI lo muestra como "última actividad" y retention lo usa como "edad para cleanup". Un write de mantenimiento satisface al primero y ciega al segundo.
+
+**Solución:** `clear_source_url` no toca `updated_at` (documentado en el docstring); la edad de un job terminal la define su última transición de estado, no la última pasada del sweep.
+
+**Regla de Oro:** *Si una columna se usa como reloj de retention, ningún write de mantenimiento puede modificarla: el mantenimiento que rejuvenece lo que limpia se auto-anula.*
+
+### Regla de Oro 12.2 [API / FastAPI]: un endpoint que devuelve `Response` no puede anotar `dict`
+
+**Error:** al agregar ramas de error `JSONResponse` a `GET /api/v1/jobs`, la anotación `-> dict[str, object] | JSONResponse` rompió el registro de rutas: FastAPI intenta construir un response model pydantic de la unión y `create_app()` explota en import (`FastAPIError: Invalid args for response field`), tumbando TODA la suite (4 archivos ni siquiera coleccionan).
+
+**Root Cause:** la anotación de retorno de un path operation no es solo typing: FastAPI la usa para generar el response model, y `Response` no es un field pydantic válido.
+
+**Solución:** `response_model=None` en el decorador cuando el endpoint puede devolver una `Response` cruda; pyright sigue verificando la unión en el cuerpo.
+
+**Regla de Oro:** *Si un endpoint devuelve `JSONResponse` en alguna rama, poné `response_model=None` en el decorador: sin eso, un cambio de anotación tumba el import de la app entera.*

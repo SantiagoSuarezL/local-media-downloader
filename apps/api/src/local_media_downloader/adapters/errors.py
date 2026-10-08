@@ -27,9 +27,15 @@ _UNAVAILABLE = (
     r"|no longer available|unable to extract|dead page)"
 )
 _NO_FORMAT = r"(requested format is not available|format is not available|no video formats found)"
+# DNS failure wording is platform-specific: Winsock says "getaddrinfo failed"
+# while glibc says "Name or service not known" (urllib3: "Failed to resolve").
+# All of them must land here, before _BROKEN_EXTRACTOR below, or the same
+# unresolvable host classifies as NETWORK_ERROR on Windows but TOOL_OUTDATED
+# on Linux (the CI ubuntu backend failure).
 _NETWORK = (
     r"(read timed out|timed out|timeout|connection reset|connection aborted"
-    r"|temporary failure in name resolution|nodename nor servname"
+    r"|temporary failure in name resolution|name or service not known"
+    r"|failed to resolve|name resolution|nodename nor servname"
     r"|network is unreachable|connection refused|ssl|getaddrinfo)"
 )
 _RATE_LIMIT = r"(too many requests|rate.?limit|http error 429)"

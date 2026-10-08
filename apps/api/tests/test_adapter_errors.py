@@ -42,6 +42,19 @@ from local_media_downloader.domain.errors import RETRYABLE, ErrorCode, Extractio
         ("ERROR: Could not write to data: No space left on device", ErrorCode.INSUFFICIENT_DISK),
         ("ERROR: python: [Errno 2] No such file or directory: 'yt-dlp'", ErrorCode.TOOL_MISSING),
         ("ERROR: Unable to download webpage: extractor error", ErrorCode.TOOL_OUTDATED),
+        # glibc DNS wording (Linux): same unresolvable host as Winsock's
+        # "getaddrinfo failed" — must stay NETWORK_ERROR, never TOOL_OUTDATED,
+        # even though the line also says "Unable to download webpage".
+        (
+            "ERROR: Unable to download webpage: <urlopen error [Errno -2] "
+            "Name or service not known>",
+            ErrorCode.NETWORK_ERROR,
+        ),
+        (
+            "ERROR: Unable to download webpage: HTTPSConnectionPool: "
+            "Failed to resolve 'lmd-smoke.invalid'",
+            ErrorCode.NETWORK_ERROR,
+        ),
     ],
 )
 def test_known_failures_are_classified(stderr: str, expected: ErrorCode) -> None:

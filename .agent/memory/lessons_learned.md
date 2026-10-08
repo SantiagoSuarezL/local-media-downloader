@@ -21,10 +21,22 @@
 - 7.1 [Herramientas / PowerShell]: no editar UTF-8 con Set-Content — ver `lessons_learned_archive.md`.
 - 8.1 [Git / .gitignore]: anclar patrones de directorio a raíz — ver `lessons_learned_archive.md`.
 - 8.2 [API / Web]: el fallback SPA no responde `/api/*` — ver `lessons_learned_archive.md`.
+- 12.1 [Retention / tiempo]: el mantenimiento nunca toca `updated_at` — ver `lessons_learned_archive.md`.
+- 12.2 [API / FastAPI]: un endpoint que devuelve `Response` no puede anotar `dict` — ver `lessons_learned_archive.md`.
 
 ---
 
 ## Reglas activas
+
+### Regla de Oro 17.1 [Adapters / errores]: el texto DNS de un fallo cambia con la plataforma — matcheá la causa, no el wrapper
+
+**Error:** CI rojo desde Fase 13 sin que nadie lo mirara (Sesión 27): el smoke fallaba SOLO en `backend ubuntu-latest` — `POST /api/v1/resolve` con URL `.invalid` devolvía 503 TOOL_OUTDATED cuando el test exige {502, 504}. En Windows pasaba.
+
+**Root Cause:** glibc dice "Name or service not known" (urllib3: "Failed to resolve") y Winsock dice "getaddrinfo failed". `_NETWORK` solo conocía la variante Windows, así que en Linux la línea `Unable to download webpage: ... Name or service not known` caía en `_BROKEN_EXTRACTOR` → TOOL_OUTDATED. Mismo host, distinto ErrorCode según el OS.
+
+**Solución (Sesión 27):** `_NETWORK` suma `name or service not known|failed to resolve|name resolution` (la regla ya estaba antes que `_BROKEN_EXTRACTOR`, el orden no se tocó) + 2 filas de regresión en `test_adapter_errors.py` con stderr estilo glibc que también contiene "Unable to download webpage" (prueban que la causa específica gana por orden).
+
+**Regla de Oro:** *Si clasificás stderr de una herramienta externa por regex, cada causa necesita sus variantes por plataforma (glibc vs Winsock como mínimo); y el test de regresión debe incluir la línea wrapper completa para probar que la causa específica gana por orden de reglas.*
 
 ### Regla de Oro 14.2 [Planner / Executor]: un flag que la estrategia elegida no puede ejecutar no se propaga — fuerza la estrategia o se rechaza
 
@@ -45,23 +57,3 @@
 **Solución:** la capacidad se verifica desde la firma real (`_supports_encode_options` con `inspect.signature(processor.transcode).parameters`) y la llamada se hace vía `cast(VideoEncodeOptionsTool, ...)`; el protocolo dejó de ser `runtime_checkable` y su docstring documenta por qué.
 
 **Regla de Oro:** *Para detectar en runtime una extensión de firma de un método que ya existe en el protocolo base, nunca uses `isinstance` runtime_checkable (presencia no prueba firma, y pyright lo marca como overlap inseguro): inspeccioná `inspect.signature` o dale a la capacidad un nombre de método propio.*
-
-### Regla de Oro 12.1 [Retention / tiempo]: el mantenimiento nunca toca `updated_at`
-
-**Error:** `clear_source_url` actualizaba `updated_at` al redactar. Como el sweep corre redact-antes-que-borrado en la misma pasada, el job redactado pasaba a verse "recién modificado" y `list_terminal_older_than` ya no lo encontraba: `history_retention_days` nunca borraba nada que antes hubiera sido redactado. Lo cazó `test_retention_deletes_old_history_rows`.
-
-**Root Cause:** `updated_at` tiene dos lectores con semánticas distintas: la UI lo muestra como "última actividad" y retention lo usa como "edad para cleanup". Un write de mantenimiento satisface al primero y ciega al segundo.
-
-**Solución:** `clear_source_url` no toca `updated_at` (documentado en el docstring); la edad de un job terminal la define su última transición de estado, no la última pasada del sweep.
-
-**Regla de Oro:** *Si una columna se usa como reloj de retention, ningún write de mantenimiento puede modificarla: el mantenimiento que rejuvenece lo que limpia se auto-anula.*
-
-### Regla de Oro 12.2 [API / FastAPI]: un endpoint que devuelve `Response` no puede anotar `dict`
-
-**Error:** al agregar ramas de error `JSONResponse` a `GET /api/v1/jobs`, la anotación `-> dict[str, object] | JSONResponse` rompió el registro de rutas: FastAPI intenta construir un response model pydantic de la unión y `create_app()` explota en import (`FastAPIError: Invalid args for response field`), tumbando TODA la suite (4 archivos ni siquiera coleccionan).
-
-**Root Cause:** la anotación de retorno de un path operation no es solo typing: FastAPI la usa para generar el response model, y `Response` no es un field pydantic válido.
-
-**Solución:** `response_model=None` en el decorador cuando el endpoint puede devolver una `Response` cruda; pyright sigue verificando la unión en el cuerpo.
-
-**Regla de Oro:** *Si un endpoint devuelve `JSONResponse` en alguna rama, poné `response_model=None` en el decorador: sin eso, un cambio de anotación tumba el import de la app entera.*
