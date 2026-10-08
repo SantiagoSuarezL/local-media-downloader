@@ -34,15 +34,16 @@ jobs:
 
       - name: Install FFmpeg (ubuntu)
         if: matrix.os == 'ubuntu-latest'
-        # apt ships a 2-year-old FFmpeg whose WebP demuxer/decoder cannot
-        # roundtrip animated WebP (reads 0x0 dims, decode error rate 1), so
-        # the sticker tests can only run against a modern static build —
-        # the same class of binary the Windows bundle pins.
+        # Pinned 9.x static build (BtbN), not apt: apt's FFmpeg is too old to
+        # roundtrip animated WebP (reads 0x0 dims, decoder rejects valid
+        # files) and johnvansickle static lacks libsvtav1, which the AV1
+        # preset tests require. Same class of binary the bundle pins (9.0.1).
         run: |
-          curl --fail --retry 3 -sL https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz -o /tmp/ffmpeg-static.tar.xz
+          curl --fail --retry 3 -sL https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n9.0-latest-linux64-gpl-9.0.tar.xz -o /tmp/ffmpeg-static.tar.xz
           tar -xf /tmp/ffmpeg-static.tar.xz -C /tmp
-          sudo install /tmp/ffmpeg-*-amd64-static/ffmpeg /tmp/ffmpeg-*-amd64-static/ffprobe /usr/local/bin/
+          sudo install /tmp/ffmpeg-n9.0-latest-linux64-gpl-9.0/bin/ffmpeg /tmp/ffmpeg-n9.0-latest-linux64-gpl-9.0/bin/ffprobe /usr/local/bin/
           ffmpeg -version | head -1
+          ffmpeg -hide_banner -h encoder=libsvtav1 | head -2
 
       - name: Ruff lint
         run: uv run ruff check .
