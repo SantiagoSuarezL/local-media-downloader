@@ -28,6 +28,16 @@
 
 ## Reglas activas
 
+### Regla de Oro 17.4 [Servicio / shutdown]: un stream infinito más kill-timeout deshabilitado = Ctrl+C que no para
+
+**Error (Sesión 32, test usuario):** Ctrl+C sobre el backend imprimía `[INFO] Stopping worker-1` y la terminal nunca devolvía el prompt mientras el dashboard estuviera abierto.
+
+**Root Cause:** `/api/v1/events` es un SSE que espera `queue.get()` para siempre → una pestaña abierta del dashboard deja a ese task in-flight indefinidamente. Granian con `workers_kill_timeout=None` (el default) espera al worker SIN límite: el graceful shutdown nunca termina de matar al worker.
+
+**Solución:** `workers_kill_timeout=1` en la llamada a `Granian` en `__main__.py` (1 s de grace, luego kill del worker). Ojo: en Windows un Ctrl+C real no se replica fácil en tests automáticos — los eventos de consola no viajan por pipes (`send_signal(SIGINT)` falla salvo `CTRL_C_EVENT` con `CREATE_NEW_PROCESS_GROUP`), así que la verificación de este fix vive en el test manual del Ctrl+C del usuario.
+
+**Regla de Oro:** *Todo servidor con streams infinitos (SSE/WebSocket) configura su kill-timeout explícito en el mismo commit que introduce el stream — el default "disabled" de Granian convierte un Ctrl+C en un hang si hay vivo cualquier cliente con stream abierto.*
+
 ### Regla de Oro 17.3 [Adapters / compat]: un archivo válido con sub-frames voltea al demuxer viejo — CI usa binarios de la clase pineada
 
 **Error:** instalar ffmpeg en CI ubuntu destapó `sticker-webp` en rojo: ffprobe 0x0 + `Decode error rate 1 exceeds maximum` sobre un archivo VÁLIDO (canvas VP8X 512x512, 10 KB, gyan 9.0.1 lo lee perfecto).

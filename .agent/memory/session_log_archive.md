@@ -574,3 +574,9 @@ con los 13 nuevos: 5 parse_probe + 8 acceptance ffmpeg). JS sin cambios.
 - Root cause: caché de health 5 s vs timeout del probe 1.5 s — si el probe cae en cache-miss, `detect_tools` supera 1.5 s en máquina cargada, el popup aborta (Offline) y el servidor ve el abort como `Closed`. El texto "Ready..." además pisaba el detalle del error (motivo invisible).
 - Fix: `checkHealth` reintenta UNA vez solo ante throw (abort/red; un status HTTP es definitivo y no se reintenta) + popup preserva el detalle del probe fallido. 3 tests nuevos en `client.test.ts` (retry-abort→connected, no-retry en 503, último error tras 2 aborts); viejos intactos.
 - Gates frontend verdes (lint/format:check/check/test 113/build) + rebuild extensión. Commit + push, CI vigilado.
+
+### Sesión 31 — 2026-10-08 — opencode/muse-spark (probe 6 s: Offline persistente) vía OpenCode
+
+- Usuario: con retry igual flapeaba; pares de `health_check` a ~1.4 s = ambos intentos abortados → el miss supera 3 s. `detect_tools` son 4 subprocess SECUENCIALES (yt-dlp boot python + deno + ffmpeg + ffprobe, c/u hasta 2 s) + extractor check: en esta máquina un miss tarda varios segundos.
+- Fix: `DEFAULT_TIMEOUT_MS` 1500→6000 (el timeout solo muerde con servidor vivo-pero-lento; caído responde refused en ms, así que no cuelga el popup). Retry intacto. Sin tests nuevos (los existentes fijan timeoutMs explícito).
+- Gates frontend verdes + rebuild. Commit + push, CI vigilado. Usuario debe recargar la extensión.

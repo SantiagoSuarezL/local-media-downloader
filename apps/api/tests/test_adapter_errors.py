@@ -40,6 +40,11 @@ from local_media_downloader.domain.errors import RETRYABLE, ErrorCode, Extractio
             ErrorCode.RATE_LIMITED,
         ),
         ("ERROR: Could not write to data: No space left on device", ErrorCode.INSUFFICIENT_DISK),
+        # TikTok soft-blocks a client IP for a given post; a retry later may work.
+        (
+            "ERROR: [tiktok] 123: Your IP address is blocked from accessing this post",
+            ErrorCode.SOURCE_UNAVAILABLE,
+        ),
         ("ERROR: python: [Errno 2] No such file or directory: 'yt-dlp'", ErrorCode.TOOL_MISSING),
         ("ERROR: Unable to download webpage: extractor error", ErrorCode.TOOL_OUTDATED),
         # glibc DNS wording (Linux): same unresolvable host as Winsock's

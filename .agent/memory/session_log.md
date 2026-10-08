@@ -12,16 +12,18 @@
 
 ## ÚLTIMA SESIÓN (detalle completo)
 
-`Sesión 31 — 2026-10-08 — opencode/muse-spark (probe 6 s: Offline persistente) vía OpenCode`
+`Sesión 32 — 2026-10-08 — opencode/muse-spark (TikTok curl-cffi + Ctrl+C hang) vía OpenCode`
 
-- Usuario: con retry igual flapeaba; pares de `health_check` a ~1.4 s = ambos intentos abortados → el miss supera 3 s. `detect_tools` son 4 subprocess SECUENCIALES (yt-dlp boot python + deno + ffmpeg + ffprobe, c/u hasta 2 s) + extractor check: en esta máquina un miss tarda varios segundos.
-- Fix: `DEFAULT_TIMEOUT_MS` 1500→6000 (el timeout solo muerde con servidor vivo-pero-lento; caído responde refused en ms, así que no cuelga el popup). Retry intacto. Sin tests nuevos (los existentes fijan timeoutMs explícito).
-- Gates frontend verdes + rebuild. Commit + push, CI vigilado. Usuario debe recargar la extensión.
+- TikTok 502 `EXTRACTION_FAILED`: forensic `yt-dlp -v` mostró "attempting impersonation, but no impersonate target is available" → TikTok rechaza el TLS vanilla de Python. Sin dependencia `curl_cffi` TODO TikTok fallaba. Con curl-cffi: impersonación OK (`chrome-150`); el video de muestra queda "Your IP address is blocked" (error esperado del servidor, clasificado ahora como SOURCE_UNAVAILABLE retryable).
+- Fix: `curl-cffi>=0.13` en deps (lock 0.16.3) + mapeo `ip address` en `_UNAVAILABLE` + test de regresión + THIRD_PARTY_NOTICES + `lmd.spec` con `collect_all("curl_cffi")` (data+binaries+hiddens) para el bundle. NOTA: el `uv sync` no pudo correr (backend del usuario mantenía el venv lockeado) → usuario debe `uv sync` al reiniciar.
+- Ctrl+C hang (usuario: tras "Stopping worker-1" no devuelve la terminal): `_event_stream` espera `queue.get()` para siempre y Granian tenía `workers_kill_timeout` disabled (default None) → el SSE abierto del dashboard impedía que el worker termine. Fix: `workers_kill_timeout=1` en `__main__.py` (kill duro a 1 s del grace). Mi simulación por pipes no reproduce la consola real (Ctrl+C en Windows es un evento de consola, no una señal a un pipe) — la verificación definitiva es el Ctrl+C del usuario sobre el backend real.
+- Gates: ruff/pyright, pytest 547 fast + smoke 1, prettier OK. Total 661. Regla 17.4.
 
 ---
 
 ## HISTORIAL RELEVANTE (comprimido, detalle completo en session_log_archive.md)
 
+- `Sesión 31 — 2026-10-08` — Probe del popup a 6 s (cache-miss lento de health: 4 subprocess secuenciales); frontend verde.
 - `Sesión 30 — 2026-10-08` — Popup Offline intermitente (cache-miss vs timeout): retry ante throw + detalle preservado; 3 tests; frontend verde.
 - `Sesión 29 — 2026-10-08` — Saga sticker-webp interop (ANMF sub-frames vs decoder ≤8.x) + CI 4/4 con BtbN 9.0 en ambos OS; 657 tests, Regla 17.3.
 - `Sesión 28 — 2026-10-08` — FFmpeg en CI ubuntu + fix 403 dev (`changeOrigin: true`, Regla 17.2); frontend verde.

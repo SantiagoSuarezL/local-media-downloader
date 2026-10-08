@@ -10,7 +10,7 @@
 **Lenguaje:** Python 3.12+ (backend), TypeScript (frontend/extension)
 
 **Dependencias principales:**
-- Backend: FastAPI, Granian, Pydantic, SQLite (stdlib, WAL), yt-dlp + yt-dlp-ejs + Deno (runtime JS interno del extractor), FFmpeg/FFprobe (binarios externos)
+- Backend: FastAPI, Granian, Pydantic, SQLite (stdlib, WAL), yt-dlp + yt-dlp-ejs + Deno (runtime JS interno del extractor), curl-cffi 0.16 (TLS impersonation: sitios como TikTok rechazan el TLS de Python vanilla), FFmpeg/FFprobe (binarios externos)
 
 **Resolución de binarios (no depender del PATH global):**
 - `yt-dlp` 2026.8.19 es dependencia **Python** del uv env; se invoca siempre como `[sys.executable, "-m", "yt_dlp", ...]`, jamás como `yt-dlp` del PATH.
@@ -45,7 +45,7 @@ Monolito modular local-first con scheduler durable de jobs (asyncio, sin Celery/
 
 **Packaging:** Windows primero — PyInstaller onedir → Inno Setup. Binarios third-party bundled y pineados (FFmpeg LGPL preferible); THIRD_PARTY_NOTICES.md; licencia del proyecto Apache-2.0.
 
-**Suite de tests:** 660 (547 pytest en `apps/api` — 546 fast + 1 smoke `-m smoke` con servidor real + 3 live opt-in con `LMD_LIVE_NETWORK=1` — + 88 Vitest en `apps/web` + 25 Vitest en `apps/extension`)
+**Suite de tests:** 661 (548 pytest en `apps/api` — 547 fast + 1 smoke `-m smoke` con servidor real + 3 live opt-in con `LMD_LIVE_NETWORK=1` — + 88 Vitest en `apps/web` + 25 Vitest en `apps/extension`)
 
 ---
 

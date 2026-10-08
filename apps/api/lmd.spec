@@ -25,6 +25,8 @@ resolves them at runtime via ``tool_paths._bundle_bin_candidates`` and
 
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_all
+
 REPO_ROOT = Path(SPECPATH).resolve().parent.parent  # <repo>/apps/api/ -> <repo>
 WEB_DIST = REPO_ROOT / "apps" / "web" / "dist"
 
@@ -38,6 +40,14 @@ if not (WEB_DIST / "index.html").is_file():
 datas = [
     (str(WEB_DIST), "web"),
 ]
+binaries: list = []
+
+# curl-cffi brings TLS impersonation (TikTok and friends reject vanilla
+# urllib); yt-dlp imports it dynamically, invisible to static analysis, and
+# it ships native extensions -> collect modules AND shared libraries.
+_cc_datas, _cc_binaries, _cc_hidden = collect_all("curl_cffi")
+datas += _cc_datas
+binaries += _cc_binaries
 
 # Hidden imports for dynamic loaders: yt-dlp resolves extractors and
 # postprocessors via importlib, invisible to PyInstaller's static analysis.
@@ -46,6 +56,7 @@ hiddenimports = [
     "yt_dlp.extractor",
     "yt_dlp.extractor.common",
     "yt_dlp.postprocessor",
+    *_cc_hidden,
     "pydantic",
     "fastapi",
     "granian",
@@ -60,7 +71,7 @@ hiddenimports = [
 a = Analysis(
     ["lmd_entry.py"],
     pathex=[str(REPO_ROOT / "apps" / "api" / "src")],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],

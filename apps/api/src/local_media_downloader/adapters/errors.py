@@ -24,7 +24,7 @@ _LIVE = r"(live event will begin|this live event|is live)"
 # 429 is excluded here because it has its own, more specific category.
 _UNAVAILABLE = (
     r"(http error 4(?!29)\d\d|video unavailable|has been removed"
-    r"|no longer available|unable to extract|dead page)"
+    r"|no longer available|unable to extract|dead page|ip address)"
 )
 _NO_FORMAT = r"(requested format is not available|format is not available|no video formats found)"
 # DNS failure wording is platform-specific: Winsock says "getaddrinfo failed"

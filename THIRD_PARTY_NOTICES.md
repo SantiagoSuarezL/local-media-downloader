@@ -12,6 +12,7 @@ The installer bundles the following third-party components with pinned versions.
 * **Granian 2.8.4** – MIT License.
 * **Pydantic 2.13.5** – MIT License.
 * **Deno 2.9.6** – MIT License. Staged in the bundle `bin/` directory.
+* **curl-cffi 0.16.3** – MIT License. Provides TLS impersonation to yt-dlp (some sites refuse vanilla Python TLS); ships its own bundled libcurl (curl is MIT/X-derived).
 * **FFmpeg / FFprobe** – LGPL v2.1 / GPL v2 (prefer an LGPL-compatible build for release). Staged in the bundle `bin/` directory; resolved via `LMD_FFMPEG`/`LMD_FFPROBE` override first, then `bin/`, then PATH as a last resort.
 * **Svelte 5**, **Vite**, **Tailwind CSS**, **TypeScript**, **pnpm** – licenses as listed in respective package.json.
 
@@ -21,6 +22,7 @@ The installer bundles the following third-party components with pinned versions.
 * https://github.com/emrekaradag/granian
 * https://github.com/pydantic/pydantic
 * https://deno.land/
+* https://github.com/lexiforest/curl_cffi
 * https://ffmpeg.org/
 
 ## License Texts

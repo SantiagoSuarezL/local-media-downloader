@@ -32,6 +32,10 @@ def main() -> None:
         interface=Interfaces.ASGI,
         workers=1,
         log_level=LogLevels(settings.log_level.lower()),
+        # Open SSE streams are in-flight forever: without a kill budget a
+        # Ctrl+C would print "Stopping worker-1" and hang until the dashboard
+        # tab is closed. Two seconds of grace, then force the worker down.
+        workers_kill_timeout=1,
     ).serve()
 
 

@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "FastAPI service, job scheduler and execution adapters."
 requires-python = ">=3.12"
 dependencies = [
+    "curl-cffi>=0.13.0",
     "fastapi>=0.142.2",
     "granian>=2.8.4",
     "pydantic>=2.13.5",
