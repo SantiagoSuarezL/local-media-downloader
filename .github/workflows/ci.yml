@@ -32,6 +32,10 @@ jobs:
       - name: Sync dependencies
         run: uv sync --locked
 
+      - name: Install FFmpeg (ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
       - name: Ruff lint
         run: uv run ruff check .
 

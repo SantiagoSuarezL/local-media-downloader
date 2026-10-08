@@ -547,3 +547,11 @@ con los 13 nuevos: 5 parse_probe + 8 acceptance ffmpeg). JS sin cambios.
 - Fix quirúrgico solo al test: `test_cancel_running_job` ahora exige `CANCELLED` estricto + `executor.active_run == 0` + `scheduler._active == {}` + `scheduler._cancels == {}` (blinda cancel-running y no-orphans); estable 5/5 corridas. Sin cambios de contrato (test-only, sin sync frontend).
 - Gates TODO VERDE en orden: ruff check+format (77 files), pyright 0, pytest 542 passed/3 skipped + smoke 1 passed, pnpm lint/format:check/check/test (22 ext + 88 web = 110)/build. Total 653. Fase 17 marcada ✅ en `roadmap.md`; las 2 reservas de Fase 16 (smoke bundle + browser real) siguen abiertas en `observations.md`.
 - Memoria rotada (25→archive verbatim + historial); `graphify update .` + commit + push. Siguiente: reservas de hardware cuando haya máquina/restos + humano para browser.
+
+### Sesión 27 — 2026-10-08 — opencode/muse-spark (CI ubuntu en verde + trial browser) vía OpenCode
+
+- Trial browser: servidor levantado desacoplado (WMI, el harness mata el árbol del comando al terminar) en 127.0.0.1:8765 con `LMD_DATA_DIR` temporal; health 200 + shell con `<meta lmd-token>` verificados. Lección: `Start-Process` no sobrevive al fin del comando, WMI sí.
+- `gh run list`: CI rojo desde Fase 13, solo `backend ubuntu-latest` (windows + frontend verdes). `--log-failed`: smoke fallaba con `resolve` de `.invalid` → 503 TOOL_OUTDATED, el test exige {502, 504}.
+- Root cause: glibc dice "Name or service not known", Winsock "getaddrinfo failed" — `_NETWORK` no conocía la variante Linux y la línea caía en `_BROKEN_EXTRACTOR`. Bug real, no test débil.
+- Fix: `_NETWORK` +3 variantes + 2 filas de regresión glibc en `test_adapter_errors.py` (viejos intactos); Regla 17.1, 12.x→archive. Gates: ruff/pyright/pytest 544 passed + smoke 1. Total 655. Commit + push, CI vigilado 4/4 verde.
+- Nota: en CI ubuntu hay 40 skips "ffmpeg/ffprobe not installed" (no tumban el build, pero esa cobertura solo corre en Windows/local). Propuesta: instalar ffmpeg en el job ubuntu.

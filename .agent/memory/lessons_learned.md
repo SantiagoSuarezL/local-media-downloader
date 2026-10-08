@@ -28,6 +28,16 @@
 
 ## Reglas activas
 
+### Regla de Oro 17.2 [Web / Dev]: el proxy dev debe presentar el Host del backend, no el de Vite
+
+**Error:** con `pnpm dev` (:5173) + backend (:8765), el dashboard daba 403 `INVALID_HOST` en `/api/v1/jobs` y `/api/v1/events`. En producción (:8765 sirviendo el build) funcionaba.
+
+**Root Cause:** el proxy de Vite tenía `changeOrigin: false`, así que el backend recibía `Host: 127.0.0.1:5173` y `validate_host(expected_port=8765)` lo rechazaba por puerto. El comentario del proxy ("same origin, no allowance needed") describía la intención pero el flag hacía exactamente lo contrario.
+
+**Solución (Sesión 28):** `changeOrigin: true` en `apps/web/vite.config.ts` + comentario que cita el check. El `Origin: http://127.0.0.1:5173` que el browser sí manda pasa `validate_origin` (solo exige host loopback, no puerto). Nota: en dev el token igual viene por cookie (hay que abrir :8765 una vez para que FastAPI la fije; las cookies ignoran el puerto).
+
+**Regla de Oro:** *Si el backend valida el puerto del `Host`, el proxy dev lleva `changeOrigin: true` sí o sí — con `false` el backend ve el puerto de Vite y todo `/api/*` da 403. Y el comentario del proxy debe nombrar el check que lo exige, no solo la intención.*
+
 ### Regla de Oro 17.1 [Adapters / errores]: el texto DNS de un fallo cambia con la plataforma — matcheá la causa, no el wrapper
 
 **Error:** CI rojo desde Fase 13 sin que nadie lo mirara (Sesión 27): el smoke fallaba SOLO en `backend ubuntu-latest` — `POST /api/v1/resolve` con URL `.invalid` devolvía 503 TOOL_OUTDATED cuando el test exige {502, 504}. En Windows pasaba.

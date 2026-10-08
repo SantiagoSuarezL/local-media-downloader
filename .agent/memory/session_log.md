@@ -12,18 +12,17 @@
 
 ## ÚLTIMA SESIÓN (detalle completo)
 
-`Sesión 27 — 2026-10-08 — opencode/muse-spark (CI ubuntu en verde + trial browser) vía OpenCode`
+`Sesión 28 — 2026-10-08 — opencode/muse-spark (ffmpeg CI ubuntu + fix 403 dev) vía OpenCode`
 
-- Trial browser: servidor levantado desacoplado (WMI, el harness mata el árbol del comando al terminar) en 127.0.0.1:8765 con `LMD_DATA_DIR` temporal; health 200 + shell con `<meta lmd-token>` verificados. Lección: `Start-Process` no sobrevive al fin del comando, WMI sí.
-- `gh run list`: CI rojo desde Fase 13, solo `backend ubuntu-latest` (windows + frontend verdes). `--log-failed`: smoke fallaba con `resolve` de `.invalid` → 503 TOOL_OUTDATED, el test exige {502, 504}.
-- Root cause: glibc dice "Name or service not known", Winsock "getaddrinfo failed" — `_NETWORK` no conocía la variante Linux y la línea caía en `_BROKEN_EXTRACTOR`. Bug real, no test débil.
-- Fix: `_NETWORK` +3 variantes + 2 filas de regresión glibc en `test_adapter_errors.py` (viejos intactos); Regla 17.1, 12.x→archive. Gates: ruff/pyright/pytest 544 passed + smoke 1. Total 655. Commit + push, CI vigilado.
-- Nota: en CI ubuntu hay 40 skips "ffmpeg/ffprobe not installed" (no tumban el build, pero esa cobertura solo corre en Windows/local). Propuesta: instalar ffmpeg en el job ubuntu.
+- Usuario pidió: ffmpeg en el job backend de CI + apagar servidor de prueba (PID 13724 ya inexistente; :8765 lo tenía su propio backend). Reportó 403 en `/api/v1/jobs` y `/api/v1/events` desde :5173.
+- Root cause 403: proxy Vite con `changeOrigin: false` → backend veía `Host: 127.0.0.1:5173`, `validate_host(expected_port=8765)` rechazaba por puerto. Fix: `changeOrigin: true` + comentario que cita el check (Regla 17.2). En dev el token va por cookie (abrir :8765 una vez la fija).
+- CI: paso `Install FFmpeg (ubuntu)` solo en ubuntu → ~40 skips pasan a correr. Gates frontend re-corridos (lint/format:check/check/test 110/build verdes). Commit + push, CI vigilado 4/4.
 
 ---
 
 ## HISTORIAL RELEVANTE (comprimido, detalle completo en session_log_archive.md)
 
+- `Sesión 27 — 2026-10-08` — Trial browser (servidor WMI desacoplado, health+shell OK) + CI ubuntu en verde (glibc vs Winsock, Regla 17.1); 655 tests.
 - `Sesión 26 — 2026-10-08` — Revisión HANDOFF + cierre Fase 17: test cancel-running endurecido (CANCELLED estricto + no-orphans); gates verdes, 653 tests.
 - `Sesión 25 — 2026-10-08` — Cierre Fase 16 con 2 reservas de hardware (smoke bundle + browser real, en observations.md); sin código; gates dev verdes Sesión 24.
 - `Sesión 24 — 2026-10-08` — Revisión HANDOFF Fase 16: spec portable, web_dist/bin frozen-aware, entry shim, staging script; bundle compila 2× pero smoke colgado → Fase 16 abierta; 652 tests verdes.

@@ -26,11 +26,14 @@ export default defineConfig({
     port: 5173,
     // Dev proxy: the SPA talks to the local service on the same origin so no
     // CORS/loopback allowance is ever needed in development either. Follows
-    // LMD_PORT so a non-default service port keeps working.
+    // LMD_PORT so a non-default service port keeps working. changeOrigin must
+    // stay true: the backend rejects any Host whose port is not its own
+    // (validate_host expected_port → 403 INVALID_HOST), and with false the
+    // backend would see `127.0.0.1:5173` instead of its own port.
     proxy: {
       '/api': {
         target: `http://127.0.0.1:${process.env.LMD_PORT ?? 8765}`,
-        changeOrigin: false,
+        changeOrigin: true,
       },
     },
   },
