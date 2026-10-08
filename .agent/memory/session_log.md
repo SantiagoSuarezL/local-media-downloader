@@ -12,17 +12,17 @@
 
 ## ÚLTIMA SESIÓN (detalle completo)
 
-`Sesión 30 — 2026-10-08 — opencode/muse-spark (popup Offline intermitente) vía OpenCode`
+`Sesión 31 — 2026-10-08 — opencode/muse-spark (probe 6 s: Offline persistente) vía OpenCode`
 
-- Usuario: popup alterna Connected/Offline; backend loguea `health_check` + `ASGI transport error Closed` tras cada uno. Sin rastro en Network del popup (cada reapertura mata el documento inspeccionado).
-- Root cause: caché de health 5 s vs timeout del probe 1.5 s — si el probe cae en cache-miss, `detect_tools` supera 1.5 s en máquina cargada, el popup aborta (Offline) y el servidor ve el abort como `Closed`. El texto "Ready..." además pisaba el detalle del error (motivo invisible).
-- Fix: `checkHealth` reintenta UNA vez solo ante throw (abort/red; un status HTTP es definitivo y no se reintenta) + popup preserva el detalle del probe fallido. 3 tests nuevos en `client.test.ts` (retry-abort→connected, no-retry en 503, último error tras 2 aborts); viejos intactos.
-- Gates frontend verdes (lint/format:check/check/test 113/build) + rebuild extensión. Commit + push, CI vigilado.
+- Usuario: con retry igual flapeaba; pares de `health_check` a ~1.4 s = ambos intentos abortados → el miss supera 3 s. `detect_tools` son 4 subprocess SECUENCIALES (yt-dlp boot python + deno + ffmpeg + ffprobe, c/u hasta 2 s) + extractor check: en esta máquina un miss tarda varios segundos.
+- Fix: `DEFAULT_TIMEOUT_MS` 1500→6000 (el timeout solo muerde con servidor vivo-pero-lento; caído responde refused en ms, así que no cuelga el popup). Retry intacto. Sin tests nuevos (los existentes fijan timeoutMs explícito).
+- Gates frontend verdes + rebuild. Commit + push, CI vigilado. Usuario debe recargar la extensión.
 
 ---
 
 ## HISTORIAL RELEVANTE (comprimido, detalle completo en session_log_archive.md)
 
+- `Sesión 30 — 2026-10-08` — Popup Offline intermitente (cache-miss vs timeout): retry ante throw + detalle preservado; 3 tests; frontend verde.
 - `Sesión 29 — 2026-10-08` — Saga sticker-webp interop (ANMF sub-frames vs decoder ≤8.x) + CI 4/4 con BtbN 9.0 en ambos OS; 657 tests, Regla 17.3.
 - `Sesión 28 — 2026-10-08` — FFmpeg en CI ubuntu + fix 403 dev (`changeOrigin: true`, Regla 17.2); frontend verde.
 - `Sesión 27 — 2026-10-08` — Trial browser (servidor WMI desacoplado, health+shell OK) + CI ubuntu en verde (glibc vs Winsock, Regla 17.1); 655 tests.

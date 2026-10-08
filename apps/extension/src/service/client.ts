@@ -6,15 +6,20 @@
  * network failure is an expected state here, not an exception to propagate.
  *
  * One retry on thrown errors only (abort, connection refused): the health
- * endpoint re-runs tool detection when its 5 s cache expires, and on a loaded
- * machine that can exceed a single timeout while the service is fine. An HTTP
- * answer — even an error status — is definitive and is never retried.
+ * endpoint re-runs tool detection when its 5 s cache expires — four sequential
+ * subprocess boots plus the extractor check — and on a loaded machine that
+ * takes several seconds while the service is fine. An HTTP answer, even an
+ * error status, is definitive and is never retried.
+ *
+ * The timeout only bites when the service is alive but slow: a dead service
+ * refuses the connection in milliseconds, so a generous budget never hangs
+ * the popup on the common down case.
  */
 
 import type { HealthDto } from '@lmd/contracts'
 import { normalizeServiceUrl } from '../lib/handoff'
 
-export const DEFAULT_TIMEOUT_MS = 1500
+export const DEFAULT_TIMEOUT_MS = 6000
 
 /** Attempts per probe: first try plus one retry on transient failures. */
 const MAX_ATTEMPTS = 2
