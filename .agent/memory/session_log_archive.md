@@ -509,3 +509,11 @@ con los 13 nuevos: 5 parse_probe + 8 acceptance ffmpeg). JS sin cambios.
 - Sin sync frontend: backend-only igual que slices trim/resize/crop/encode (la key es opcional; `OutputIntent.as_dict()` no alimenta ningún DTO de respuesta).
 - Gates TODO VERDE: ruff check+format clean, pyright 0, pytest 518 passed/3 skipped (fast) + smoke 1 passed, pnpm lint/format:check/check/test (22 ext + 88 web)/build verdes. Total: 629 tests.
 - Pendientes Fase 14: subtítulos, metadata.
+
+### Sesión 22 — 2026-10-08 — opencode/muse-spark (cierre Fase 15 Performance engineering) vía OpenCode
+
+- Fase 15 es medición manual sin tests nuevos. `docs/TESTING.md` §8: gates unchanged, mediciones fuera de suite.
+- Medición manual de startup: servicio en puerto aislado con `LMD_DATA_DIR` temporal, Stopwatch hasta `/api/v1/health` 200. Resultados: ~10.29-10.31 s, WorkingSet ~22.5 MB.
+- Gates verificados y verdes: `uv run ruff check/format`, `uv run pyright` 0, `uv run pytest -m "not smoke"` 534 passed/3 skipped, `uv run pytest -m smoke` 1 passed; `pnpm lint/format:check/check/test/build` verdes.
+- Sin cambios de código; sin modificación/borrado de tests existentes. Fase 15 marcada como ✅ en `roadmap.md` e `INDEX.md` actualizado a Próxima fase 16.
+- Nota de Sesión 23: la medición de memoria era de un solo proceso (refutada: árbol real ~82 MB WS) y quedaron restos sin commitear (`measure_startup.py` + `data_perf_test/`); ver Sesión 23.

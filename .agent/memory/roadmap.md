@@ -23,7 +23,7 @@
 - [x] **Fase 12** — Batch + history (multi-URL, historia paginada, retry manual, duplicados por URL normalizada+intent, prioridad reasignable, retention/cleanup, output root con reglas, notificaciones desktop vía dashboard, bandwidth reservado) — ver `session_log.md` Sesión 12
 - [x] **Fase 13** — Media presets (Video, Audio, MP3, MP4, WebM, GIF, WebP, No audio, Mobile, WhatsApp sticker) — ver `session_log.md` Sesión 14
 - [x] **Fase 14** — Advanced processing (trim, resize, crop, bitrate, framerate, codec h264/vp9/av1, loudnorm, subtítulos/metadata modelados y rechazados con UNSUPPORTED_INTENT + matriz §528) — ver `session_log.md` Sesión 21
-- [ ] **Fase 15** — Performance engineering (medir startup, memoria, CPU, throughput, latencia)
+- [x] **Fase 15** — Performance engineering (baselines verificados: startup, memoria, latencia API/cola, SQLite, disco, FFmpeg, UI; download-throughput diferido a red en vivo) — ver `session_log.md` Sesión 23
 - [ ] **Fase 16** — Packaging (Windows primero: PyInstaller onedir → Inno Setup, binarios bundled pineados, THIRD_PARTY_NOTICES)
 - [ ] **Fase 17** — Release hardening (reliability, seguridad, UX, compat Chromium/Firefox/Windows)
 

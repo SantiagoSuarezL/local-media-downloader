@@ -12,18 +12,20 @@
 
 ## ÚLTIMA SESIÓN (detalle completo)
 
-`Sesión 21 — 2026-10-08 — opencode/muse-spark (verificación HANDOFF + cierre Fase 14) vía OpenCode`
+`Sesión 23 — 2026-10-08 — opencode/muse-spark (verificación HANDOFF + cierre real Fase 15) vía OpenCode`
 
-- Verificación del HANDOFF subtitles/metadata: `git status/diff` separó código (2 archivos: `domain/intent.py` +14, `services/planner.py` +12) vs tests (1 nuevo `tests/test_advanced_processing.py`); cero tests viejos modificados — ningún test existente fue debilitado para pasar.
-- Auditoría de contrato: sin `ErrorCode` nuevo (reúsa `UNSUPPORTED_INTENT`), sin DTO de respuesta tocado (`OutputIntent.as_dict()` no alimenta `_job_dict`; `dedupe_key` usa el dict crudo del request), `presets.test.ts` sigue en su key set mínimo y `schemas.ts` no cubre el intent request → sin sync frontend, igual que los slices trim/resize/crop/encode. Rechazo temprano en `plan()` (antes de presets/audio-only) = sin detalles muertos (Regla 14.2); bool estricto en parse (Regla 14.1 no aplica: no hay extensión de firma). Sin fix necesario.
-- Feature blindada con la matriz que §528 exige: `test_advanced_processing.py` (16 tests) — defaults False + `as_dict`, aceptación de flags, rechazo de no-booleanos ("true"/1/0/None/[]), planner rechaza subtitles/metadata con mensaje exacto, plan normal intacto.
-- Gates TODO VERDE: ruff check + format (83 files), pyright 0, pytest 534 passed/3 skipped (fast) + smoke 1 passed, pnpm lint/format:check/check/test (22 ext + 88 web)/build verdes. Total: 645 tests.
-- Fase 14 CERRADA en memoria (`roadmap.md` ✅, `INDEX.md` → Fase 15); `graphify update .` + commit + push. Siguiente: Fase 15 Performance engineering.
+- Verificación del HANDOFF Sesión 22: `git status/diff` solo tocaba memoria (3 archivos), cero código/tests → ningún test debilitado. Pero la medición era incompleta: script `measure_startup.py` sin commitear (puerto fijo 18765, viola Regla 10.2; pipe de stdout sin drenar; claimaba WorkingSet sin medirlo) + `data_perf_test/` vacío → ambos eliminados del repo.
+- Re-medición hermética (puerto fresco con ownership, `LMD_DATA_DIR` temporal): boot→listen 0.56–1.64 s, →first `/health` 200 10–22 s (delta ~12.5 s = tool probes del health en frío); memoria del ÁRBOL 81.6–82.0 MB WS / 67–69 MB privada (3 python: launcher ~4 + Granian ~28 + worker ~49) → 22.5 MB refutado. Import app ~0.6–1.2 s (domina fastapi). API: health med 3 ms p95 17 ms; jobs-list med 3 ms p95 17 ms. Cola (in-process, stub extractor + scheduler real, n=10): pickup med 13.3 ms p95 15 ms. SQLite: 2000 inserts 155 ms single-txn / 11 ms batch, keyset page 0.041 ms. Disco 349/1377 MB/s. FFmpeg synth 480p5s 0.33 s ≈457 fps. UI `dist` 108190 B.
+- No medible offline por diseño: download throughput (crear jobs resuelve vía yt-dlp real; `.invalid`→502) y cola sobre HTTP real → diferido a red en vivo (TESTING.md §5, `observations.md`). Sonda de cola casi falla por saturar `max_active=3` con executor que nunca termina (lección: liberar slot con cancel entre muestras). Tuning: SIN cambios — headroom en todos los knobs (Granian workers=1, scheduler 3/2/1, threads FFmpeg); el único costo (probes del primer health) es diagnóstico por diseño, cachearlo cambiaría el contrato → observación abierta para Fase 16/17.
+- Gates re-corridos en orden TODO VERDE: ruff check+format (83 files), pyright 0, pytest 534 passed/3 skipped + smoke 1 passed, pnpm lint/format:check/check/test (22 ext + 88 web)/build. Total 645. Sin cambios de código; sin tests nuevos (§8) ni viejos tocados.
+- Memoria rotada (22→archive verbatim + historial); `roadmap.md` ref→Sesión 23; `INDEX.md` honesto (download-throughput diferido); `observations.md` +2 abiertas; `graphify update .` + commit + push. Siguiente: Fase 16 Packaging.
 
 ---
 
 ## HISTORIAL RELEVANTE (comprimido, detalle completo en session_log_archive.md)
 
+- `Sesión 22 — 2026-10-08` — Cierre Fase 15 declarado (startup ~10.3 s, WS ~22.5 MB, gates verdes); Sesión 23 lo auditó: memoria era un solo proceso y faltaban 8/9 bullets → re-medido y corregido.
+- `Sesión 21 — 2026-10-08` — Verificación HANDOFF + cierre Fase 14 advanced processing; 645 tests; gates verdes.
 - `Sesión 20 — 2026-10-07` — Auditoría+fix slice audio normalization Fase 14 (loudnorm forzaba transcode, rechazos remove/presets, `_supports_audio_normalize` por firma, stub legacy restaurado); Regla 14.2; 629 tests.
 
 - `Sesión 19 — 2026-10-07` — Slice audio normalization Fase 14 (loudnorm I=-14/LRA=11/TP=-1.5 en intent→planner→executor→ffmpeg); verificado y corregido en Sesión 20.

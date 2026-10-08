@@ -10,6 +10,28 @@ Formato de cada entrada: fecha, target/módulo, observación, hipótesis, estado
 
 ## En curso
 
+- **2026-10-08 — Primer `/health` tarda ~12.5 s por los tool probes en frío.**
+  Target `app.py`/`diagnostics.py` (`detect_tools` en el path de health).
+  Boot→listen 0.56–1.64 s pero →first 200 10–22 s: el delta son los probes
+  (cada uno spawnea yt-dlp como módulo python + ffmpeg + deno en frío,
+  más Defender en Windows). Los siguientes health: med 3 ms / p95 17 ms.
+  *Hipótesis:* con binarios bundled y pineados (Fase 16) el frío baja solo;
+  si no, evaluar cachear/diferir detección sin cambiar la semántica del
+  contrato (el health debe reportar estado vivo de herramientas).
+  *Estado:* abierto — re-medir al cerrar Fase 16 con el bundle instalado.
+  *Acción:* ninguna todavía; si se toca, lleva test (contrato de health).
+
+- **2026-10-08 — Download throughput sin baseline: crear jobs exige red.**
+  Target `adapters/yt_dlp.py` + `POST /api/v1/jobs` (resuelve síncrono vía
+  yt-dlp real; `.invalid`→502 por diseño). Sin red no se puede crear ningún
+  job por HTTP real, así que throughput de descarga y cola sobre HTTP real
+  no tienen baseline hermético (cola in-process: pickup med 13.3 ms).
+  *Hipótesis:* ninguna anomalía esperada (límites scheduler 3/2/1 con
+  headroom), pero sin número no hay tuning fundado de fragment concurrency.
+  *Estado:* abierto — medir con `LMD_LIVE_NETWORK=1` contra medios públicos
+  de test al cerrar Fase 16/17 (TESTING.md §5: live-network siempre opt-in).
+  *Acción:* ninguna todavía; no bloquear Fase 16 por esto.
+
 - **2026-10-07 — Batch de 100 URLs largas podría superar el límite de 64 KiB.**
   `POST /api/v1/jobs/batch` acepta hasta 100 items (`BatchRequest`, `max_length=100`)
   pero el middleware rechaza bodies > 64 KiB (`LMD_MAX_REQUEST_BYTES`) con 413.

@@ -5,8 +5,8 @@
 ## Estado del proyecto
 
 **Proyecto:** local-media-downloader
-**Fase actual:** 15 (Fase 14 cerrada — trim/resize/crop/encode-options/audio-normalization/subtítulos/metadata; siguiente: Performance engineering)
-**Próxima fase:** 15 — Performance engineering
+**Fase actual:** 15 (cerrada en Sesión 23 — baselines verificados: boot/latencias/cola/SQLite/disco/FFmpeg/UI; download-throughput diferido a red en vivo)
+**Próxima fase:** 16 — Packaging
 
 ## Tabla de archivos
 
