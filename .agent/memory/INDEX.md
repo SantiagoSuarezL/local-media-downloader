@@ -5,8 +5,8 @@
 ## Estado del proyecto
 
 **Proyecto:** local-media-downloader
-**Fase actual:** 16 — Packaging (ABIERTA: groundwork commiteado en Sesión 24; pendiente smoke del bundle frozen + checklist browser real)
-**Próxima fase:** 17 — Release hardening (tras cerrar 16)
+**Fase actual:** 16 (cerrada en Sesión 25 con 2 reservas de hardware documentadas en `observations.md`: smoke del bundle en otra máquina/CI + checklist browser por el usuario)
+**Próxima fase:** 17 — Release hardening
 
 ## Tabla de archivos
 
