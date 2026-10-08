@@ -135,6 +135,20 @@ def _parse_fps(stream: dict[str, Any]) -> float | None:
     return None
 
 
+def _dim(raw: dict[str, Any], *keys: str) -> int | None:
+    """First positive dimension under ``keys``.
+
+    0 is never a real dimension (domain/probe.py: absence is None, never a
+    fake value): older ffprobe builds report width/height (and coded_*) as 0
+    for animated WebP, so 0 means "unknown" here, not a size.
+    """
+    for key in keys:
+        value = _as_int(raw.get(key))
+        if value:
+            return value
+    return None
+
+
 def _parse_stream(raw: dict[str, Any]) -> StreamProbe:
     codec_type = raw.get("codec_type")
     kind = {
@@ -146,11 +160,10 @@ def _parse_stream(raw: dict[str, Any]) -> StreamProbe:
         index = int(raw.get("index", 0))
     except (TypeError, ValueError):
         index = 0
-    # Older ffprobe builds report width/height 0 for animated WebP while the
-    # coded dimensions are correct; prefer container dims, fall back to coded.
-    # (0 is never a real dimension, so `or` is safe here.)
-    width = _as_int(raw.get("width")) or _as_int(raw.get("coded_width"))
-    height = _as_int(raw.get("height")) or _as_int(raw.get("coded_height"))
+    # Prefer container dims, fall back to coded ones; both may be 0/unknown
+    # on older ffprobe builds (animated WebP), which _dim maps to None.
+    width = _dim(raw, "width", "coded_width")
+    height = _dim(raw, "height", "coded_height")
     return StreamProbe(
         index=index,
         kind=kind,

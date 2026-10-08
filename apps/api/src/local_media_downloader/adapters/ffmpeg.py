@@ -16,16 +16,22 @@ Invariants enforced here:
 
 from __future__ import annotations
 
+import re
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 from ..domain.errors import ErrorCode, ExtractionError
-from ..domain.probe import MediaProbe
+from ..domain.probe import MediaProbe, StreamKind
 from ..logging_config import get_logger
 from .ffprobe import FFprobeInspector
 from .tool_paths import ffmpeg_argv
 
 _LOGGER = get_logger("processor.ffmpeg")
+
+# First `s:WxH` of a showinfo line: decoded-frame dimensions, stable across
+# ffmpeg versions (e.g. `[Parsed_showinfo_0 ...] n: 0 ... s:512x512 ...`).
+_DECODED_DIMS = re.compile(r"s:(\d+)x(\d+)")
 
 DEFAULT_TIMEOUT = 600.0
 
@@ -446,35 +452,6 @@ class FFmpegProcessor:
                 video.height,
                 result.stat().st_size,
             )
-            # DIAG-TEMP: dump the raw video stream block so CI shows what this
-            # ffprobe build reports (width/coded_width for animated WebP).
-            try:
-                import json as _json
-                import subprocess as _subprocess
-
-                from .tool_paths import ffprobe_argv as _ffprobe_argv
-
-                _dumped = _subprocess.run(
-                    [
-                        *_ffprobe_argv(),
-                        "-v",
-                        "error",
-                        "-print_format",
-                        "json",
-                        "-show_streams",
-                        str(result),
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=30.0,
-                    check=False,
-                )
-                _streams = _json.loads(_dumped.stdout or "{}").get("streams", [])
-                _LOGGER.warning(
-                    "sticker_stream_dump %s", _json.dumps(_streams[0] if _streams else {})
-                )
-            except Exception:
-                pass
             result.unlink(missing_ok=True)
             raise ExtractionError(
                 ErrorCode.VALIDATION_FAILED, "Sticker exceeds 512x512 or 500 KB.", retryable=False
@@ -512,7 +489,34 @@ class FFmpegProcessor:
                 detail=str(probe.duration_seconds),
                 retryable=False,
             )
-        return probe
+        return self._with_decoded_dims(path, probe, timeout=timeout)
+
+    @staticmethod
+    def _with_decoded_dims(path: Path, probe: MediaProbe, *, timeout: float) -> MediaProbe:
+        """Fill video dims ffprobe reports as unknown from decoded frames.
+
+        Some ffprobe builds report width/height 0 (normalized to None) for
+        codecs whose container carries no usable dims (e.g. animated WebP on
+        older builds). The decoder always knows the real frame size, so a
+        single showinfo frame is ground truth. Anything unparseable stays
+        None (fail closed: callers treat unknown dims as a breach).
+        """
+        if not any(
+            s.kind is StreamKind.VIDEO and (s.width is None or s.height is None)
+            for s in probe.streams
+        ):
+            return probe
+        dims = _decoded_frame_dims(path, timeout=timeout)
+        if dims is None:
+            return probe
+        width, height = dims
+        streams = tuple(
+            replace(s, width=s.width or width, height=s.height or height)
+            if s.kind is StreamKind.VIDEO and (s.width is None or s.height is None)
+            else s
+            for s in probe.streams
+        )
+        return replace(probe, streams=streams)
 
     def _run(
         self,
@@ -592,6 +596,53 @@ def _cpu_args(video_codec: str) -> list[str]:
     if video_codec == "libsvtav1":
         return ["-preset", "4"]
     return ["-preset", "veryfast"]
+
+
+def _decoded_frame_dims(path: Path, *, timeout: float) -> tuple[int, int] | None:
+    """Dimensions of the first decoded frame, or None when unknowable.
+
+    Ground truth when container probing reports unknown dims: the decoder
+    always sees real pixels. Never raises; callers fail closed on None.
+    """
+    try:
+        completed = subprocess.run(
+            [
+                *ffmpeg_argv(),
+                # info, not error: the showinfo frame lines this parses live
+                # at info level and -v error would suppress them.
+                "-v",
+                "info",
+                "-i",
+                str(path),
+                "-vf",
+                "showinfo",
+                "-vframes",
+                "1",
+                "-f",
+                "null",
+                "-",
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+            check=False,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return None
+    if completed.returncode != 0:
+        return None
+    match = _DECODED_DIMS.search(completed.stderr or "")
+    if match is None:
+        return None
+    try:
+        width, height = int(match.group(1)), int(match.group(2))
+    except ValueError:
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return width, height
 
 
 def _scale_filter(target: str) -> str:

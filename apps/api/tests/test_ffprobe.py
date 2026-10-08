@@ -95,3 +95,37 @@ def test_parse_probe_rejects_missing_format_block() -> None:
     with pytest.raises(ExtractionError) as exc:
         parse_probe(json.dumps({"streams": []}), path=Path("x.mp4"))
     assert exc.value.code is ErrorCode.EXTRACTION_FAILED
+
+
+def _webp_payload(width: object, height: object, coded_width: object) -> dict:
+    return {
+        "streams": [
+            {
+                "index": 0,
+                "codec_name": "webp",
+                "codec_type": "video",
+                "width": width,
+                "height": height,
+                "coded_width": coded_width,
+                "coded_height": coded_width,
+            }
+        ],
+        "format": {"format_name": "webp", "size": "10412"},
+    }
+
+
+def test_parse_probe_prefers_coded_dims_when_container_reports_zero() -> None:
+    """Older ffprobe builds report width/height 0 for animated WebP."""
+    probe = parse_probe(json.dumps(_webp_payload(0, 0, 512)), path=Path("sticker.webp"))
+    video = probe.video_stream
+    assert video is not None
+    assert (video.width, video.height) == (512, 512)
+
+
+def test_parse_probe_maps_zero_dims_to_none() -> None:
+    """0 is never a real dimension: absence is None, not a fake value."""
+    probe = parse_probe(json.dumps(_webp_payload(0, 0, 0)), path=Path("sticker.webp"))
+    video = probe.video_stream
+    assert video is not None
+    assert video.width is None
+    assert video.height is None
