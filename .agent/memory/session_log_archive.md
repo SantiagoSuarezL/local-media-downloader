@@ -555,3 +555,9 @@ con los 13 nuevos: 5 parse_probe + 8 acceptance ffmpeg). JS sin cambios.
 - Root cause: glibc dice "Name or service not known", Winsock "getaddrinfo failed" — `_NETWORK` no conocía la variante Linux y la línea caía en `_BROKEN_EXTRACTOR`. Bug real, no test débil.
 - Fix: `_NETWORK` +3 variantes + 2 filas de regresión glibc en `test_adapter_errors.py` (viejos intactos); Regla 17.1, 12.x→archive. Gates: ruff/pyright/pytest 544 passed + smoke 1. Total 655. Commit + push, CI vigilado 4/4 verde.
 - Nota: en CI ubuntu hay 40 skips "ffmpeg/ffprobe not installed" (no tumban el build, pero esa cobertura solo corre en Windows/local). Propuesta: instalar ffmpeg en el job ubuntu.
+
+### Sesión 28 — 2026-10-08 — opencode/muse-spark (ffmpeg CI ubuntu + fix 403 dev) vía OpenCode
+
+- Usuario pidió: ffmpeg en el job backend de CI + apagar servidor de prueba (PID 13724 ya inexistente; :8765 lo tenía su propio backend). Reportó 403 en `/api/v1/jobs` y `/api/v1/events` desde :5173.
+- Root cause 403: proxy Vite con `changeOrigin: false` → backend veía `Host: 127.0.0.1:5173`, `validate_host(expected_port=8765)` rechazaba por puerto. Fix: `changeOrigin: true` + comentario que cita el check (Regla 17.2). En dev el token va por cookie (abrir :8765 una vez la fija).
+- CI: paso `Install FFmpeg (ubuntu)` solo en ubuntu → ~40 skips pasan a correr. Gates frontend re-corridos (lint/format:check/check/test 110/build verdes). Commit + push, CI vigilado 4/4.

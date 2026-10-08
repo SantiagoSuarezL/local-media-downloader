@@ -12,16 +12,17 @@
 
 ## ÚLTIMA SESIÓN (detalle completo)
 
-`Sesión 28 — 2026-10-08 — opencode/muse-spark (ffmpeg CI ubuntu + fix 403 dev) vía OpenCode`
+`Sesión 29 — 2026-10-08 — opencode/muse-spark (sticker webp interop + CI 4/4 con cobertura total) vía OpenCode`
 
-- Usuario pidió: ffmpeg en el job backend de CI + apagar servidor de prueba (PID 13724 ya inexistente; :8765 lo tenía su propio backend). Reportó 403 en `/api/v1/jobs` y `/api/v1/events` desde :5173.
-- Root cause 403: proxy Vite con `changeOrigin: false` → backend veía `Host: 127.0.0.1:5173`, `validate_host(expected_port=8765)` rechazaba por puerto. Fix: `changeOrigin: true` + comentario que cita el check (Regla 17.2). En dev el token va por cookie (abrir :8765 una vez la fija).
-- CI: paso `Install FFmpeg (ubuntu)` solo en ubuntu → ~40 skips pasan a correr. Gates frontend re-corridos (lint/format:check/check/test 110/build verdes). Commit + push, CI vigilado 4/4.
+- Instalar ffmpeg en CI ubuntu destapó `sticker-webp` rojo: ffprobe 0x0 + decoder "Decode error rate 1" con archivo VÁLIDO (canvas VP8X 512x512, 10 KB). Forense local (BtbN 8.1): libwebp emite ANMF sub-frames con offset (recorta bordes transparentes del pad) y el decoder nativo ≤8.x los rechaza; 9.x sí los lee.
+- Fix en 2 partes: (1) CI ubuntu+windows con BtbN n9.0 static pineado (misma clase que el bundle 9.0.1; apt no servía y johnvansickle-7.0.2 no trae libsvtav1 que exige el test AV1); (2) robustez real: dims 0→None en parse (contrato probe.py) + fallback coded + `validate()` rellena dims desconocidas desde frames decodeados (showinfo, fail closed) + warning con actuals en el breach.
+- CI final 4/4 verde: 547 passed en AMBOS OS (0 skips ffmpeg; solo 3 live opt-in). Total 657. Regla 17.3. Build 8.1 temporal (~200 MB) eliminado del TEMP.
 
 ---
 
 ## HISTORIAL RELEVANTE (comprimido, detalle completo en session_log_archive.md)
 
+- `Sesión 28 — 2026-10-08` — FFmpeg en CI ubuntu + fix 403 dev (`changeOrigin: true`, Regla 17.2); frontend verde.
 - `Sesión 27 — 2026-10-08` — Trial browser (servidor WMI desacoplado, health+shell OK) + CI ubuntu en verde (glibc vs Winsock, Regla 17.1); 655 tests.
 - `Sesión 26 — 2026-10-08` — Revisión HANDOFF + cierre Fase 17: test cancel-running endurecido (CANCELLED estricto + no-orphans); gates verdes, 653 tests.
 - `Sesión 25 — 2026-10-08` — Cierre Fase 16 con 2 reservas de hardware (smoke bundle + browser real, en observations.md); sin código; gates dev verdes Sesión 24.

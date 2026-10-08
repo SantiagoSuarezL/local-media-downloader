@@ -28,6 +28,16 @@
 
 ## Reglas activas
 
+### Regla de Oro 17.3 [Adapters / compat]: un archivo válido con sub-frames voltea al demuxer viejo — CI usa binarios de la clase pineada
+
+**Error:** instalar ffmpeg en CI ubuntu destapó `sticker-webp` en rojo: ffprobe 0x0 + `Decode error rate 1 exceeds maximum` sobre un archivo VÁLIDO (canvas VP8X 512x512, 10 KB, gyan 9.0.1 lo lee perfecto).
+
+**Root Cause:** libwebp recorta cada frame al bbox no-transparente y emite ANMF sub-frames con offset (nuestro pad transparente lo provoca siempre). El demuxer/decoder nativo ≤8.x no tolera esos sub-frames (dims 0, decode EINVAL en todos los frames); 9.x sí. Ni apt ni johnvansickle-7.0.2 servían (este último, además, sin libsvtav1 para el test AV1).
+
+**Solución (Sesión 29):** CI ubuntu+windows con BtbN n9.0 static pineado (misma clase que el bundle 9.0.1) → 547 passed en ambos OS; más robustez real: dims 0→None en el parse (el contrato probe.py dice que ausencia es None), fallback a coded dims, y `validate()` rellena dims desconocidas desde frames decodeados (showinfo, fail closed) para usuarios con ffmpeg viejo.
+
+**Regla de Oro:** *Si el producto emite un formato con features que los demuxers viejos no leen, CI corre con binarios de la misma clase que los pineados en el bundle — un apt de 2 años vuelve rojo un archivo válido. Y dimensión 0 del probe es ausencia (None), nunca un tamaño.*
+
 ### Regla de Oro 17.2 [Web / Dev]: el proxy dev debe presentar el Host del backend, no el de Vite
 
 **Error:** con `pnpm dev` (:5173) + backend (:8765), el dashboard daba 403 `INVALID_HOST` en `/api/v1/jobs` y `/api/v1/events`. En producción (:8765 sirviendo el build) funcionaba.
