@@ -440,6 +440,14 @@ class FFmpegProcessor:
         if preset == "sticker" and (
             video.width != 512 or video.height != 512 or result.stat().st_size > 500_000
         ):
+            _LOGGER.warning(
+                "sticker_limits_exceeded",
+                extra={
+                    "width": video.width,
+                    "height": video.height,
+                    "size_bytes": result.stat().st_size,
+                },
+            )
             result.unlink(missing_ok=True)
             raise ExtractionError(
                 ErrorCode.VALIDATION_FAILED, "Sticker exceeds 512x512 or 500 KB.", retryable=False
