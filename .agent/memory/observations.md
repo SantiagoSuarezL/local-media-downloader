@@ -24,9 +24,13 @@ Formato de cada entrada: fecha, target/módulo, observación, hipótesis, estado
   Nota Sesión 18 (slice encode-options Fase 14): los intents crecieron 2 keys
   opcionales (`video_bitrate`/`video_framerate`, ~50 B solo cuando se usan) —
   el batch típico sigue lejos del límite; re-chequear al cerrar Fase 14.
-  Nota Sesión 20 (slice audio normalization Fase 14): +1 key opcional
-  (`audio_normalize`, ~25 B solo cuando se usa) — sin impacto; re-chequeo sigue
-  pautado al cerrar Fase 14.
+   Nota Sesión 20 (slice audio normalization Fase 14): +1 key opcional
+   (`audio_normalize`, ~25 B solo cuando se usa) — sin impacto; re-chequeo sigue
+   pautado al cerrar Fase 14.
+   Nota Sesión 21 (cierre Fase 14): +2 keys opcionales (`subtitles`/`metadata`,
+   ~35 B solo cuando se usan) — sin impacto; el batch típico sigue lejos del
+   límite al cerrar la fase. La observación sigue abierta (los intents pueden
+   seguir creciendo en futuras fases).
   *Acción:* ninguna todavía; la sonda 413 del smoke ya cubre el comportamiento
   actual (va última y con cliente fresco: el 413 se responde sin consumir el
   body y reutilizar ese keep-alive envenena la siguiente petición).

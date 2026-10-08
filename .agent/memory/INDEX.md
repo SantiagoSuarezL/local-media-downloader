@@ -5,8 +5,8 @@
 ## Estado del proyecto
 
 **Proyecto:** local-media-downloader
-**Fase actual:** 14 (en curso — slices trim/resize/crop/encode-options/audio-normalization listos; pendientes subtítulos, metadata)
-**Próxima fase:** 14 — Advanced processing
+**Fase actual:** 15 (Fase 14 cerrada — trim/resize/crop/encode-options/audio-normalization/subtítulos/metadata; siguiente: Performance engineering)
+**Próxima fase:** 15 — Performance engineering
 
 ## Tabla de archivos
 

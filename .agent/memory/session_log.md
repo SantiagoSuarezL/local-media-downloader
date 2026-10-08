@@ -12,18 +12,19 @@
 
 ## ÚLTIMA SESIÓN (detalle completo)
 
-`Sesión 20 — 2026-10-07 — opencode/moonshotai/kimi-k3 (auditoría + fix del slice audio normalization Fase 14) vía OpenCode`
+`Sesión 21 — 2026-10-08 — opencode/muse-spark (verificación HANDOFF + cierre Fase 14) vía OpenCode`
 
-- Auditoría del HANDOFF Sesión 19: gates del handoff verdes reales, pero el slice tenía 4 problemas: (1) `audio_normalize=True` con fuente copy-compatible caía en REMUX (`-c copy`) → loudnorm nunca se aplicaba (degradación silenciosa, el caso más común mp4→mp4); (2) combos `audio=remove` y presets gif/webp/sticker/mobile llevaban la key como detalle muerto en vez de rechazarse; (3) el executor pasaba `audio_normalize=` incondicional a `transcode` (rompía procesadores con firma Fase 4, compatibilidad documentada de la Regla 14.1) y lo enmascaró agregando `**kwargs` al stub `_LegacyTranscoder` (test viejo debilitado); (4) cambio ajeno de fase en `_step_from_dict` de scheduler.py.
-- Fix quirúrgico: `_full_video_plan` incluye `not intent.audio_normalize` en `compatible` (fuerza TRANSCODE, igual que trim/resize/crop/encode); planner rechaza normalize para `audio=remove` y presets (UNSUPPORTED_INTENT); keys muertas fuera de REMUX/VIDEO_ONLY. Executor: `_NormalizeKwarg` TypedDict + `_supports_audio_normalize` (inspección de firma, mismo patrón que `_supports_encode_options`) — kwarg solo se reenvía si fue pedido; pedido-pero-no-soportado → UNSUPPORTED_INTENT. `_LegacyTranscoder` restaurado a su firma Fase 4 (test honesto de nuevo); `_step_from_dict` revertido a coerción `str()` (mantiene la garantía runtime de `PlanStep.detail: dict[str, str]`).
-- Feature blindada con la matriz de capability que §528 de IMPLEMENTATION_PLAN exige: `tests/test_audio_normalize.py` nuevo (27 tests) — parse (bool estricto, rechaza "true"/1/None), matriz planner (fuerza transcode, copy sin la key, extract_audio, combo trim, rechazos remove/presets), forwarding executor (transcode/extract_audio, rechazo legacy + kwarg omitido en legacy), argv del adapter con ffmpeg real (loudnorm llega a transcode/extract_audio/trimmed/resize/crop; nunca con `audio_codec="none"`).
-- Sin sync frontend: backend-only igual que slices trim/resize/crop/encode (la key es opcional; `OutputIntent.as_dict()` no alimenta ningún DTO de respuesta).
-- Gates TODO VERDE: ruff check+format clean, pyright 0, pytest 518 passed/3 skipped (fast) + smoke 1 passed, pnpm lint/format:check/check/test (22 ext + 88 web)/build verdes. Total: 629 tests.
-- Pendientes Fase 14: subtítulos, metadata.
+- Verificación del HANDOFF subtitles/metadata: `git status/diff` separó código (2 archivos: `domain/intent.py` +14, `services/planner.py` +12) vs tests (1 nuevo `tests/test_advanced_processing.py`); cero tests viejos modificados — ningún test existente fue debilitado para pasar.
+- Auditoría de contrato: sin `ErrorCode` nuevo (reúsa `UNSUPPORTED_INTENT`), sin DTO de respuesta tocado (`OutputIntent.as_dict()` no alimenta `_job_dict`; `dedupe_key` usa el dict crudo del request), `presets.test.ts` sigue en su key set mínimo y `schemas.ts` no cubre el intent request → sin sync frontend, igual que los slices trim/resize/crop/encode. Rechazo temprano en `plan()` (antes de presets/audio-only) = sin detalles muertos (Regla 14.2); bool estricto en parse (Regla 14.1 no aplica: no hay extensión de firma). Sin fix necesario.
+- Feature blindada con la matriz que §528 exige: `test_advanced_processing.py` (16 tests) — defaults False + `as_dict`, aceptación de flags, rechazo de no-booleanos ("true"/1/0/None/[]), planner rechaza subtitles/metadata con mensaje exacto, plan normal intacto.
+- Gates TODO VERDE: ruff check + format (83 files), pyright 0, pytest 534 passed/3 skipped (fast) + smoke 1 passed, pnpm lint/format:check/check/test (22 ext + 88 web)/build verdes. Total: 645 tests.
+- Fase 14 CERRADA en memoria (`roadmap.md` ✅, `INDEX.md` → Fase 15); `graphify update .` + commit + push. Siguiente: Fase 15 Performance engineering.
 
 ---
 
 ## HISTORIAL RELEVANTE (comprimido, detalle completo en session_log_archive.md)
+
+- `Sesión 20 — 2026-10-07` — Auditoría+fix slice audio normalization Fase 14 (loudnorm forzaba transcode, rechazos remove/presets, `_supports_audio_normalize` por firma, stub legacy restaurado); Regla 14.2; 629 tests.
 
 - `Sesión 19 — 2026-10-07` — Slice audio normalization Fase 14 (loudnorm I=-14/LRA=11/TP=-1.5 en intent→planner→executor→ffmpeg); verificado y corregido en Sesión 20.
 - `Sesión 18 — 2026-10-07` — Fix encode-options Fase 14 + verificación; pyright 0, 491 tests; pendientes subtítulos, metadata, audio normalization.

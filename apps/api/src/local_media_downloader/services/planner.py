@@ -72,6 +72,18 @@ class Planner:
                 "No usable formats were resolved for this source.",
                 retryable=False,
             )
+        if intent.subtitles:
+            raise ExtractionError(
+                ErrorCode.UNSUPPORTED_INTENT,
+                "Subtitle extraction is not supported yet.",
+                retryable=False,
+            )
+        if intent.metadata:
+            raise ExtractionError(
+                ErrorCode.UNSUPPORTED_INTENT,
+                "Metadata editing is not supported yet.",
+                retryable=False,
+            )
 
         source_container = _primary_container(info)
         trim = self._trim_detail(intent, info)

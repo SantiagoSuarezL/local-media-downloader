@@ -32,6 +32,8 @@ _ALLOWED_KEYS = {
     "video_framerate",
     "processing",
     "audio_normalize",
+    "subtitles",
+    "metadata",
 }
 _VIDEO_CODECS = ("source", "h264", "vp9", "av1")
 _PROCESSING_KEYS = {"resize", "trim", "crop"}
@@ -149,6 +151,8 @@ class OutputIntent:
     video_bitrate: str | None = None
     video_framerate: str | None = None
     audio_normalize: bool = False
+    subtitles: bool = False
+    metadata: bool = False
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -161,6 +165,8 @@ class OutputIntent:
             "video_framerate": self.video_framerate,
             "processing": self.processing.as_dict(),
             "audio_normalize": self.audio_normalize,
+            "subtitles": self.subtitles,
+            "metadata": self.metadata,
         }
 
 
@@ -205,6 +211,12 @@ def parse_intent(payload: Any) -> OutputIntent:
     audio_normalize = payload.get("audio_normalize", False)
     if not isinstance(audio_normalize, bool):
         raise _bad("audio_normalize must be a boolean")
+    subtitles = payload.get("subtitles", False)
+    if not isinstance(subtitles, bool):
+        raise _bad("subtitles must be a boolean")
+    metadata = payload.get("metadata", False)
+    if not isinstance(metadata, bool):
+        raise _bad("metadata must be a boolean")
     processing = payload.get("processing") or {}
     if not isinstance(processing, dict):
         raise _bad("processing must be an object")
@@ -251,6 +263,8 @@ def parse_intent(payload: Any) -> OutputIntent:
         video_bitrate=video_bitrate,
         video_framerate=video_framerate,
         audio_normalize=audio_normalize,
+        subtitles=subtitles,
+        metadata=metadata,
     )
 
 
