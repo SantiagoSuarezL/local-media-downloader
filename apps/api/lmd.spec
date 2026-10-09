@@ -49,6 +49,12 @@ _cc_datas, _cc_binaries, _cc_hidden = collect_all("curl_cffi")
 datas += _cc_datas
 binaries += _cc_binaries
 
+# yt-dlp-ejs carries the JS challenge solvers as data files; without them the
+# frozen app silently loses the formats that need a JS runtime.
+_ejs_datas, _ejs_binaries, _ejs_hidden = collect_all("yt_dlp_ejs")
+datas += _ejs_datas
+binaries += _ejs_binaries
+
 # Hidden imports for dynamic loaders: yt-dlp resolves extractors and
 # postprocessors via importlib, invisible to PyInstaller's static analysis.
 hiddenimports = [
@@ -56,6 +62,11 @@ hiddenimports = [
     "yt_dlp.extractor",
     "yt_dlp.extractor.common",
     "yt_dlp.postprocessor",
+    # JS challenge solvers. The module itself is imported dynamically by
+    # diagnostics; its .js payload comes from yt-dlp's own PyInstaller hook
+    # (registered through the pyinstaller40 entry point) plus collect_all here.
+    "yt_dlp_ejs",
+    *_ejs_hidden,
     *_cc_hidden,
     "pydantic",
     "fastapi",

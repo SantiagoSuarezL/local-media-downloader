@@ -7,9 +7,14 @@ the tool itself rather than a human string we try to interpret.
 
 Template used by the adapter::
 
-    download:<lmd>%<percent>%<downloaded>%<total>%<speed>%<eta>%<fragment>\\n
+    <lmd><US>%<percent>%<downloaded>%<total>%<speed>%<eta>%<fragment>
 
 The raw human form ("0.0% of ~10.00MiB at 1.00MiB/s ETA 00:10") is never parsed.
+
+``--progress-template`` takes ``[TYPES:]TEMPLATE``: the leading ``download:`` is
+the *output type* (the key of yt-dlp's ``progress_template`` dict) and yt-dlp
+consumes it, so it never reaches the rendered line. The rendered line therefore
+starts with our marker, and the marker alone identifies a record.
 """
 
 from __future__ import annotations
@@ -19,15 +24,21 @@ from enum import StrEnum
 
 DELIMITER = "\x1f"
 PROGRESS_PREFIX = "lmd"
+RECORD_PREFIX = f"{PROGRESS_PREFIX}{DELIMITER}"
 
+# No ``download:`` type prefix here on purpose: yt-dlp parses it as the output
+# type and strips it, so including it would make every rendered line start with
+# the marker alone while the parser (correctly) looks for the marker -- the
+# mismatch silently dropped every progress record. The rendered template ends
+# without ``\\n`` because ``to_screen``/the multiline printer already terminates
+# the line under ``--newline``.
 TEMPLATE = (
-    "download:"
-    f"{PROGRESS_PREFIX}{DELIMITER}%(progress._percent_str)s{DELIMITER}"
+    f"{RECORD_PREFIX}%(progress._percent_str)s{DELIMITER}"
     "%(progress.downloaded_bytes)s"
     f"{DELIMITER}%(progress.total_bytes)s{DELIMITER}"
     "%(progress.speed)s"
     f"{DELIMITER}%(progress.eta)s{DELIMITER}"
-    "%(progress.fragment_index)s" + "\\n"
+    "%(progress.fragment_index)s"
 )
 
 
@@ -95,10 +106,10 @@ def parse_progress_line(line: str) -> DownloadProgress | None:
     abort a download.
     """
     text = line.strip()
-    if not text.startswith(f"download:{PROGRESS_PREFIX}{DELIMITER}"):
+    if not text.startswith(RECORD_PREFIX):
         return None
     parts = text.split(DELIMITER)
-    # parts[0] is the "download:lmd" marker.
+    # parts[0] is the "lmd" marker.
     if len(parts) < 7:
         return None
     return DownloadProgress(

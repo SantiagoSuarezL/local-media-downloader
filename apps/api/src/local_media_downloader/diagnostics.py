@@ -3,6 +3,13 @@
 All tool probes run through explicit argv (no shell, no interpolation) and a
 short timeout. Detection only reports presence/version; it never executes an
 extraction against a URL, so it is safe to call on every health check.
+
+Every probe resolves its tool through :mod:`.tool_paths`, the same resolution the
+adapters use, so the report describes the binaries that will really run. Probing
+``PATH`` directly used to report ``deno: no`` while the extractor was happily
+running the workspace Deno from ``node_modules/.bin`` -- a diagnostic that
+contradicts itself is worse than none. Only the version line is reported: no
+resolved path may leak into the payload (health is reachable without a token).
 """
 
 from __future__ import annotations
@@ -12,10 +19,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-_EXE_YT_DLP = "yt-dlp"
-_EXE_DENO = "deno"
-_EXE_FFMPEG = "ffmpeg"
-_EXE_FFPROBE = "ffprobe"
+from .adapters.tool_paths import ffmpeg_argv, ffprobe_argv, find_deno, yt_dlp_argv
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,10 +32,10 @@ class ToolStatus:
         return {"detected": self.detected, "version": self.version}
 
 
-def _probe(exe: str, args: list[str], timeout: float) -> str | None:
+def _probe(argv: list[str], timeout: float) -> str | None:
     try:
         completed = subprocess.run(
-            [exe, *args],
+            argv,
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -43,20 +47,33 @@ def _probe(exe: str, args: list[str], timeout: float) -> str | None:
     return output.splitlines()[0].strip() if output else None
 
 
-def detect_tools(timeout: float = 2.0) -> dict[str, ToolStatus]:
-    yt_dlp = _probe(_EXE_YT_DLP, ["--version"], timeout)
-    # yt-dlp-ejs ships as a Python package for the bundled runtime; probe both the
-    # import and the executable that yt-dlp may shell out to.
-    yt_dlp_ejs: str | None = None
-    try:
-        from yt_dlp_ejs import __version__ as ejs_version  # type: ignore[import-not-found]
+def _ejs_version() -> str | None:
+    """Version of the optional yt-dlp-ejs challenge solvers.
 
-        yt_dlp_ejs = str(ejs_version)
+    The package exposes ``version`` (0.8.x) and no ``__version__``, so both
+    spellings are accepted: reading only ``__version__`` reported
+    ``yt-dlp-ejs: no`` on an environment where the solvers were installed and
+    Deno was right there.
+    """
+    try:
+        import yt_dlp_ejs  # type: ignore[import-not-found]
     except ImportError:
-        pass
-    deno = _probe(_EXE_DENO, ["--version"], timeout)
-    ffmpeg = _probe(_EXE_FFMPEG, ["-version"], timeout)
-    ffprobe = _probe(_EXE_FFPROBE, ["-version"], timeout)
+        return None
+    version = getattr(yt_dlp_ejs, "version", None) or getattr(yt_dlp_ejs, "__version__", None)
+    return str(version) if version else "unknown"
+
+
+def detect_tools(timeout: float = 2.0) -> dict[str, ToolStatus]:
+    # yt-dlp is always the pinned module of this environment, never a PATH shim:
+    # the report has to describe the binary the adapter will really spawn.
+    yt_dlp = _probe([*yt_dlp_argv(), "--version"], timeout)
+    # yt-dlp-ejs ships as a Python package for the bundled runtime; its presence
+    # is what lets yt-dlp solve the JS challenges of some sites.
+    yt_dlp_ejs = _ejs_version()
+    deno_path = find_deno()
+    deno = _probe([deno_path, "--version"], timeout) if deno_path is not None else None
+    ffmpeg = _probe([*ffmpeg_argv(), "-version"], timeout)
+    ffprobe = _probe([*ffprobe_argv(), "-version"], timeout)
 
     def status(name: str, version: str | None) -> ToolStatus:
         return ToolStatus(name=name, detected=version is not None, version=version)

@@ -7,7 +7,8 @@ Local Media Downloader is licensed under the Apache License 2.0.
 The installer bundles the following third-party components with pinned versions.
 
 * **Python 3.12** – Python Software Foundation, Python Software Foundation License.
-* **yt-dlp 2026.8.19** – GPL v3 or later. Invoked as `sys.executable -m yt_dlp`, never from PATH.
+* **yt-dlp 2026.8.19** – The Unlicense (License-Expression: Unlicense in the installed metadata). Invoked as `sys.executable -m yt_dlp`, never from PATH.
+* **yt-dlp-ejs 0.8.0** – Unlicense AND MIT AND ISC (License-Expression in the installed metadata). JS challenge solvers yt-dlp runs through the staged Deno; without them some sites lose formats.
 * **FastAPI 0.142.2** – MIT License.
 * **Granian 2.8.4** – MIT License.
 * **Pydantic 2.13.5** – MIT License.
@@ -18,6 +19,7 @@ The installer bundles the following third-party components with pinned versions.
 
 ## Source Links
 * https://github.com/yt-dlp/yt-dlp
+* https://github.com/yt-dlp/ejs
 * https://github.com/tiangolo/fastapi
 * https://github.com/emrekaradag/granian
 * https://github.com/pydantic/pydantic

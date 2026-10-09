@@ -6,17 +6,32 @@ it does not understand rather than abort a download.
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
+from yt_dlp import YoutubeDL, parse_options
 
 from local_media_downloader.adapters.progress import (
     DELIMITER,
+    RECORD_PREFIX,
     TEMPLATE,
     parse_progress_line,
 )
 
 
 def _line(*fields: str) -> str:
-    return f"download:lmd{DELIMITER}{DELIMITER.join(fields)}"
+    return f"lmd{DELIMITER}{DELIMITER.join(fields)}"
+
+
+def _render(template: str, progress: dict[str, object]) -> str:
+    """Render a progress template exactly like yt-dlp's downloader does.
+
+    ``YoutubeDL`` and ``evaluate_outtmpl`` are typed against yt-dlp's private
+    TypedDicts (``_Params``/``_InfoDict``), which cannot be spelled from
+    outside; the call is real, only the annotations are cast away.
+    """
+    ydl = cast(Any, YoutubeDL)({"quiet": True, "simulate": True})
+    return str(ydl.evaluate_outtmpl(template, {"info": {}, "progress": progress}))
 
 
 def test_parses_a_complete_record() -> None:
@@ -92,13 +107,75 @@ def test_template_uses_named_fields_and_the_private_delimiter() -> None:
     assert "%(progress.downloaded_bytes)s" in TEMPLATE
     assert "%(progress._percent_str)s" in TEMPLATE
     assert DELIMITER in TEMPLATE
-    # The template is passed as an argv element, so yt-dlp itself must see the
-    # two-character sequence \n and expand it — not a literal newline.
-    assert "\\n" in TEMPLATE
-    assert "\n" not in TEMPLATE
     # A human never sees this delimiter, so template output cannot be confused
     # with the human progress line.
     assert DELIMITER == "\x1f"
+    # No trailing newline escape: the template is one argv element and yt-dlp
+    # already terminates the line itself under --newline.
+    assert "\n" not in TEMPLATE
+    assert "\\n" not in TEMPLATE
+
+
+def test_template_carries_no_output_type_prefix() -> None:
+    # `download:` is the *type* key of yt-dlp's progress_template dict, not part
+    # of the rendered line. Shipping it inside the template made the parser
+    # reject every real record (the tool strips it) — see
+    # test_rendered_record_from_ytdlp_option_parsing_parses.
+    assert not TEMPLATE.startswith("download:")
+    assert "download:" not in TEMPLATE
+
+
+def test_rendered_record_from_ytdlp_option_parsing_parses() -> None:
+    """Render the record the way yt-dlp does, through its own option parser.
+
+    This is the contract test for the bug above: the template is handed to
+    yt-dlp's CLI parser, which strips the ``download:`` type and keeps the rest
+    as the ``download`` template, and it is rendered with yt-dlp's own outtmpl
+    evaluator (which resolves ``progress.*`` and turns absent fields into
+    ``NA``), exactly like ``FileDownloader._report_progress_status`` does. The
+    result must be a line our parser accepts, with every field intact.
+    """
+    parsed = parse_options(["--progress-template", TEMPLATE, "https://example.invalid/x"])
+    template = parsed.options.progress_template["download"]
+    assert template == TEMPLATE
+
+    rendered = _render(
+        template,
+        {
+            "_percent_str": " 12.5%",
+            "downloaded_bytes": 1234567,
+            "total_bytes": 9876543,
+            "speed": 654321.0,
+            "eta": 7,
+            "fragment_index": 2,
+        },
+    )
+    assert rendered.startswith(RECORD_PREFIX)
+    progress = parse_progress_line(rendered)
+    assert progress is not None
+    assert progress.percentage == 12.5
+    assert progress.downloaded_bytes == 1234567
+    assert progress.total_bytes == 9876543
+    assert progress.speed_bytes_per_second == 654321.0
+    assert progress.eta_seconds == 7.0
+    assert progress.fragment_index == 2
+
+
+def test_rendered_record_with_absent_fields_parses_as_na() -> None:
+    """yt-dlp renders absent progress fields as NA; the parser keeps the rest.
+
+    Speeds/ETA are absent on the first ticks of a download, so a record made only
+    of unknown fields must still report the bytes it does know.
+    """
+    rendered = _render(TEMPLATE, {"_percent_str": "0.0%", "downloaded_bytes": 1024})
+    progress = parse_progress_line(rendered)
+    assert progress is not None
+    assert progress.percentage == 0.0
+    assert progress.downloaded_bytes == 1024
+    assert progress.total_bytes is None
+    assert progress.speed_bytes_per_second is None
+    assert progress.eta_seconds is None
+    assert progress.fragment_index is None
 
 
 @pytest.mark.parametrize("value", ["0%", "100%", "12.5%"])
