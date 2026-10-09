@@ -4,6 +4,11 @@ Diagnostics must describe the binaries the adapters will really spawn. Probing
 ``PATH`` reported ``deno: no`` while the extractor was running the workspace Deno
 from ``node_modules/.bin``, so the resolution used by ``tool_paths`` is pinned
 here: the probe argv is the adapter's argv.
+
+Every test stages the tool it claims to probe. The backend CI job never runs
+``pnpm install``, so ``node_modules/.bin`` does not exist there: a test that
+relies on Deno resolving passes on a dev machine and fails in CI (it did, on the
+first push of this file).
 """
 
 from __future__ import annotations
@@ -78,6 +83,7 @@ def test_a_missing_tool_is_reported_as_not_detected(monkeypatch: pytest.MonkeyPa
     def missing(argv: list[str], **kwargs: object) -> _Completed:
         raise FileNotFoundError(argv[0])
 
+    monkeypatch.setattr(diagnostics, "find_deno", lambda: None)
     monkeypatch.setattr(diagnostics.subprocess, "run", missing)
     tools = detect_tools()
 
@@ -96,20 +102,28 @@ def test_a_tool_that_times_out_is_reported_as_not_detected(
     assert all(tools[name].detected is False for name in PROBED)
 
 
-def test_only_the_version_line_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_only_the_version_line_is_reported(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """A tool that prints more than one line contributes only its first line.
 
     ``ffmpeg -version`` prints a whole banner (build flags, configuration,
     libraries); the payload carries one string per tool, and health is reachable
     without a token, so nothing past the version line is kept.
+
+    Deno is staged explicitly: the backend CI job never runs ``pnpm install``, so
+    ``node_modules/.bin`` does not exist there and a test that assumes Deno
+    resolves passes locally and fails in CI.
     """
+    deno = tmp_path / "deno"
+    deno.write_text("", encoding="utf-8")
+    monkeypatch.setattr(diagnostics, "find_deno", lambda: str(deno))
 
     def noisy(argv: list[str], **kwargs: object) -> _Completed:
         return _Completed(stdout="1.2.3\nbuilt with /very/long/options\n")
 
     monkeypatch.setattr(diagnostics.subprocess, "run", noisy)
+    tools = detect_tools()
     for name in PROBED:
-        assert detect_tools()[name].version == "1.2.3", name
+        assert tools[name].version == "1.2.3", name
 
 
 def test_detects_the_pinned_ytdlp_of_this_environment() -> None:
