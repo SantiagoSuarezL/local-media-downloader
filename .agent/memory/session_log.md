@@ -18,6 +18,7 @@
 - Fix: `curl-cffi>=0.13` en deps (lock 0.16.3) + mapeo `ip address` en `_UNAVAILABLE` + test de regresión + THIRD_PARTY_NOTICES + `lmd.spec` con `collect_all("curl_cffi")` (data+binaries+hiddens) para el bundle. NOTA: el `uv sync` no pudo correr (backend del usuario mantenía el venv lockeado) → usuario debe `uv sync` al reiniciar.
 - Ctrl+C hang (usuario: tras "Stopping worker-1" no devuelve la terminal): `_event_stream` espera `queue.get()` para siempre y Granian tenía `workers_kill_timeout` disabled (default None) → el SSE abierto del dashboard impedía que el worker termine. Fix: `workers_kill_timeout=1` en `__main__.py` (kill duro a 1 s del grace). Mi simulación por pipes no reproduce la consola real (Ctrl+C en Windows es un evento de consola, no una señal a un pipe) — la verificación definitiva es el Ctrl+C del usuario sobre el backend real.
 - Gates: ruff/pyright, pytest 547 fast + smoke 1, prettier OK. Total 661. Regla 17.4.
+- Post-verificación usuario: YouTube + TikTok + Twitter(X) con "best available" OK (primera descarga real end-to-end por las 3 plataformas). README reescrito user-facing (setup primera vez, run verificado con boot real en :8999, extensión, tabla LMD_*, troubleshooting con ErrorCode→acción, retenciones) + sección dev comprimida. Commit `2f251ca`.
 
 ---
 
