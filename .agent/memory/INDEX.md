@@ -5,7 +5,7 @@
 ## Estado del proyecto
 
 **Proyecto:** local-media-downloader
-**Fase actual:** 17 (cerrada en Sesión 26: HANDOFF verificado, test cancel-running endurecido, gates verdes)
+**Fase actual:** 17 (cerrada en Sesión 32: HANDOFF verificado, test cancel-running endurecido, gates verdes, TikTok curl-cffi + Ctrl+C fix)
 **Próxima fase:** ninguna — MVP completo salvo 2 reservas de hardware en `observations.md` (smoke del bundle en otra máquina/CI + checklist browser por el usuario)
 
 ## Tabla de archivos
