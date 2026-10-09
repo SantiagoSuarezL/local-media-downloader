@@ -12,17 +12,19 @@
 
 ## ÚLTIMA SESIÓN (detalle completo)
 
-`Sesión 32 — 2026-10-08 — opencode/muse-spark (TikTok curl-cffi + Ctrl+C hang) vía OpenCode`
+`Sesión 33 — 2026-10-08 — opencode/space-bunny-free (fixes de reporte del usuario) vía OpenCode`
 
-- TikTok 502 `EXTRACTION_FAILED`: forensic `yt-dlp -v` mostró "attempting impersonation, but no impersonate target is available" → TikTok rechaza el TLS vanilla de Python. Sin dependencia `curl_cffi` TODO TikTok fallaba. Con curl-cffi: impersonación OK (`chrome-150`); el video de muestra queda "Your IP address is blocked" (error esperado del servidor, clasificado ahora como SOURCE_UNAVAILABLE retryable).
-- Fix: `curl-cffi>=0.13` en deps (lock 0.16.3) + mapeo `ip address` en `_UNAVAILABLE` + test de regresión + THIRD_PARTY_NOTICES + `lmd.spec` con `collect_all("curl_cffi")` (data+binaries+hiddens) para el bundle. NOTA: el `uv sync` no pudo correr (backend del usuario mantenía el venv lockeado) → usuario debe `uv sync` al reiniciar.
-- Ctrl+C hang (usuario: tras "Stopping worker-1" no devuelve la terminal): `_event_stream` espera `queue.get()` para siempre y Granian tenía `workers_kill_timeout` disabled (default None) → el SSE abierto del dashboard impedía que el worker termine. Fix: `workers_kill_timeout=1` en `__main__.py` (kill duro a 1 s del grace). Mi simulación por pipes no reproduce la consola real (Ctrl+C en Windows es un evento de consola, no una señal a un pipe) — la verificación definitiva es el Ctrl+C del usuario sobre el backend real.
-- Gates: ruff/pyright, pytest 547 fast + smoke 1, prettier OK. Total 661. Regla 17.4.
-- Post-verificación usuario: YouTube + TikTok + Twitter(X) con "best available" OK (primera descarga real end-to-end por las 3 plataformas). README reescrito user-facing (setup primera vez, run verificado con boot real en :8999, extensión, tabla LMD_*, troubleshooting con ErrorCode→acción, retenciones) + sección dev comprimida. Commit `2f251ca`.
+- El usuario preguntó por Settings/Diagnostics/priority y reportó que Downloaded/Speed/ETA salían siempre `—`. Forensics contra la herramienta real (servidor HTTP local + el `TEMPLATE` del repo): la línea `download:lmd\x1f...` nunca se imprime — `download:` es la CLAVE del tipo de salida de `--progress-template` y yt-dlp la consume, así que toda línea se descartaba en silencio (el parser era correcto). Fix: template sin prefijo de tipo ni `\n` final, `RECORD_PREFIX` en el parser, y el test nuevo produce la línea con `parse_options` + `YoutubeDL.evaluate_outtmpl` (0 registros antes, 15 después con bytes/velocidad). Regla 17.5.
+- `detect_tools` probaba `deno`/`ffmpeg`/etc. por PATH mientras el runtime usa `tool_paths` → Diagnostics reportaba `deno: no` con Deno corriendo desde `node_modules/.bin`. Fix: los probes componen argv con `yt_dlp_argv()`/`find_deno()`/`ffmpeg_argv()`/`ffprobe_argv()` (y `_ejs_version()` acepta `version`/`__version__`), sigue reportando solo la primera línea para no filtrar paths. Nuevo `tests/test_diagnostics.py` (11 tests). Regla 17.6.
+- Gap de spec: `TECHNICAL_SPEC` §exige `yt-dlp-ejs` desde la Fase 1 pero nunca estuvo en `pyproject.toml` (`tech_stack.md` lo declaraba, el venv no lo tenía). Agregado `yt-dlp-ejs>=0.3.2` (lock 0.8.0) + `collect_all`/hiddenimport en `lmd.spec` + THIRD_PARTY_NOTICES; además corregí la licencia de yt-dlp en el notice (es The Unlicense, no "GPL v3" — verificado en el metadata del dist-info).
+- Gates: ruff/pyright 0, pytest 561 fast + smoke 1, prettier/eslint/svelte-check, 88+25 Vitest. Total 675. Reglas 17.5 y 17.6 agregadas; 14.1/14.2 archivadas por rotación.
+- CI: el usuario preguntó por qué corría en cada commit → `paths-ignore: ['**.md', 'docs/**', '.agent/**']` en `push` y `pull_request` (con comentario que nombra la regla: nada del build lee `.md`; los tests de packaging leen `pyproject.toml`/`lmd.spec`). Verificado: YAML parsea, prettier limpio, `main` sin branch protection (sin required checks que puedan quedar esperando).
 
 ---
 
 ## HISTORIAL RELEVANTE (comprimido, detalle completo en session_log_archive.md)
+
+- `Sesión 32 — 2026-10-08` — TikTok con curl-cffi (impersonation) + `workers_kill_timeout=1` (Ctrl+C hang); README user-facing; commit `2f251ca`.
 
 - `Sesión 31 — 2026-10-08` — Probe del popup a 6 s (cache-miss lento de health: 4 subprocess secuenciales); frontend verde.
 - `Sesión 30 — 2026-10-08` — Popup Offline intermitente (cache-miss vs timeout): retry ante throw + detalle preservado; 3 tests; frontend verde.

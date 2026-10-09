@@ -156,3 +156,23 @@ siguen corriendo en CI.
 **Solución:** `response_model=None` en el decorador cuando el endpoint puede devolver una `Response` cruda; pyright sigue verificando la unión en el cuerpo.
 
 **Regla de Oro:** *Si un endpoint devuelve `JSONResponse` en alguna rama, poné `response_model=None` en el decorador: sin eso, un cambio de anotación tumba el import de la app entera.*
+
+### Regla de Oro 14.2 [Planner / Executor]: un flag que la estrategia elegida no puede ejecutar no se propaga — fuerza la estrategia o se rechaza
+
+**Error:** el slice audio normalization (Sesión 19) propagaba `audio_normalize` como detalle a TODOS los plan steps, incluidos REMUX (`-c copy`) y VIDEO_ONLY (sin pista de audio). Con una fuente copy-compatible (el caso común mp4→mp4) el plan elegía strategy "copy" y la normalización nunca se aplicaba. Además el executor pasaba `audio_normalize=` incondicionalmente a `transcode`, y cualquier procesador con firma de Fase 4 (compatibilidad documentada, Regla 14.1) reventaba con TypeError — enmascarado agregando `**kwargs` al stub `_LegacyTranscoder` del test viejo.
+
+**Root Cause:** el flag se modeló como metadata del plan ("poné la key en todos los steps") en vez de como una restricción de estrategia (loudnorm es un filtro: re-encode obligatorio → pertenece a la condición `compatible`, igual que trim/resize/crop/encode). Y al extender la llamada a `transcode`, el único guardián de compatibilidad (`_supports_encode_options`) sólo se evaluaba con bitrate/framerate presentes: el kwarg nuevo quedó fuera de la verificación y el test legacy se "arregló" perdiendo su propósito.
+
+**Solución (Sesión 20):** `audio_normalize` entra al check `compatible` del plan full-video (fuerza TRANSCODE); se rechaza con UNSUPPORTED_INTENT para `audio=remove` y presets; fuera de los steps de stream copy (un detalle muerto promete algo que el step no hace). El executor reenvía el kwarg sólo si fue pedido y el procesador lo declara (`_supports_audio_normalize`, inspección de firma como Regla 14.1); pedido-pero-no-soportado → UNSUPPORTED_INTENT. `_LegacyTranscoder` restaurado a su firma original y la feature blindada con su matriz de capability (`test_audio_normalize.py`, §528).
+
+**Regla de Oro:** *Una capability nueva que una estrategia del plan no puede aplicar nunca viaja como detalle muerto: o fuerza la estrategia que la aplica (check `compatible` del planner) o se rechaza antes de ejecutar. Y al extender lo que el executor pasa a un método ya existente de un puerto, el reenvío es condicional a la firma real — jamás se afloja un stub viejo para absorber el kwarg nuevo (ese test es precisamente el guardian de la compatibilidad).*
+
+### Regla de Oro 14.1 [Python / Protocolos]: un protocolo runtime_checkable que redeclara un método existente no detecta nada
+
+**Error:** el slice encode-options de Fase 14 definió `VideoEncodeOptionsTool` — protocolo `runtime_checkable` cuyo único miembro es `transcode`, nombre que `MediaTool` ya declara. Pyright falló dos veces: "Class overlaps ... unsafely and could produce a match at runtime" sobre el `isinstance`, y el unpack `**_EncodeKwargs` no matcheaba parámetros porque en la intersección `MediaTool & VideoEncodeOptionsTool` la llamada se resuelve contra la firma de `MediaTool`.
+
+**Root Cause:** `isinstance` contra un protocolo `runtime_checkable` sólo verifica *presencia* de miembros, nunca firmas. Como todo `MediaTool` tiene `transcode` (los stubs de la Fase 4 incluidos), el guardián daba `True` para procesadores que rechazarían los kwargs con `TypeError` en runtime — pyright señalaba un bug latente, no ruido de tipeo. `TrimTool`/`ResizeTool`/`CropTool` funcionan porque sus nombres (`transcode_trimmed`, `resize`, `crop`) no existen en `MediaTool`: ahí presencia sí prueba capacidad.
+
+**Solución:** la capacidad se verifica desde la firma real (`_supports_encode_options` con `inspect.signature(processor.transcode).parameters`) y la llamada se hace vía `cast(VideoEncodeOptionsTool, ...)`; el protocolo dejó de ser `runtime_checkable` y su docstring documenta por qué.
+
+**Regla de Oro:** *Para detectar en runtime una extensión de firma de un método que ya existe en el protocolo base, nunca uses `isinstance` runtime_checkable (presencia no prueba firma, y pyright lo marca como overlap inseguro): inspeccioná `inspect.signature` o dale a la capacidad un nombre de método propio.*

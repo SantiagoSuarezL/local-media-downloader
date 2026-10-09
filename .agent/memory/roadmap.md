@@ -25,12 +25,15 @@
 - [x] **Fase 14** — Advanced processing (trim, resize, crop, bitrate, framerate, codec h264/vp9/av1, loudnorm, subtítulos/metadata modelados y rechazados con UNSUPPORTED_INTENT + matriz §528) — ver `session_log.md` Sesión 21
 - [x] **Fase 15** — Performance engineering (baselines verificados: startup, memoria, latencia API/cola, SQLite, disco, FFmpeg, UI; download-throughput diferido a red en vivo) — ver `session_log.md` Sesión 23
 - [x] **Fase 16** — Packaging (Windows primero: PyInstaller onedir → Inno Setup, binarios bundled pineados, THIRD_PARTY_NOTICES) — ver `session_log.md` Sesión 25. Cierre con 2 reservas documentadas en `observations.md` (smoke del exe en máquina con resto/CI + checklist browser real por el usuario).
-- [x] **Fase 17** — Release hardening (reliability, seguridad, UX, compat Chromium/Firefox/Windows) — ver `session_log.md` Sesión 32. Cierre por verificación: todos los bullets ya cubiertos por tests existentes salvo cancel-running (nuevo `test_cancel_running_job` endurecido: CANCELLED estricto + no-orphans). Quedan las 2 reservas de Fase 16 en `observations.md`.
+- [x] **Fase 17** — Release hardening (reliability, seguridad, UX, compat Chromium/Firefox/Windows) — ver `session_log.md` Sesión 32. Cierre por verificación: todos los bullets ya cubiertos por tests existentes salvo cancel-running (nuevo `test_cancel_running_job` endurecido: CANCELLED estricto + no-orphans). Quedan las 2 reservas de Fase 16 en `observations.md`. Sesión 33 (post-MVP, sin fase nueva): bug de progreso en vivo (Regla 17.5) + detector de Diagnostics que mentía sobre Deno/EJS (Regla 17.6) + `yt-dlp-ejs` como dependencia real.
 
 ---
 
 ## Pendientes Críticos Detectados
 
+- (ninguno abierto)
+
 - **~~Deno no está instalado~~ (resuelto en Sesión 4):** Deno 2.9.6 vía pnpm devDependency raíz con `allowBuilds: { deno: true }` (pnpm 11 ignora `onlyBuiltDependencies`; corregido en Sesión 11 → Regla 10.3); se pasa a yt-dlp con `--js-runtimes deno:<path>`.
 - **"Backend starts locally" de la acceptance de Fase 0 se difiere a Fase 1** por decisión explícita: Fase 0 no introduce FastAPI/Granian (el plan prohíbe deps antes de la fase que las requiere). `apps/api` queda como paquete importable + 1 test.
 - **UX de la extensión sin verificar en un browser real (decisión explícita del usuario, Sesión 11):** Fase 9 y Fase 10 están verificadas por tests (lógica pura, contratos, CLI), pero el popup en Chrome/Firefox y el flujo `<meta>`/cookie/`EventSource` nunca se ejecutaron en un navegador. Se validan en Fase 16; el checklist concreto está en `observations.md`.
+- **CI: filtro por paths (resuelto en Sesión 33, decisión del usuario).** `.github/workflows/ci.yml` disparaba los 4 jobs para cualquier push a `main`, incluso si solo tocaba `.agent/memory/` o `docs/`. Ahora `push` y `pull_request` llevan `paths-ignore: ['**.md', 'docs/**', '.agent/**']` (el run se saltea solo si TODOS los archivos tocados matchean; un commit que también toque código corre todo) y `workflow_dispatch` queda para correrlo a mano. Seguro porque `main` no tiene branch protection (verificado con la API: `Branch not protected`), o sea que no hay required checks que puedan quedar esperando.

@@ -10,12 +10,12 @@
 **Lenguaje:** Python 3.12+ (backend), TypeScript (frontend/extension)
 
 **Dependencias principales:**
-- Backend: FastAPI, Granian, Pydantic, SQLite (stdlib, WAL), yt-dlp + yt-dlp-ejs + Deno (runtime JS interno del extractor), curl-cffi 0.16 (TLS impersonation: sitios como TikTok rechazan el TLS de Python vanilla), FFmpeg/FFprobe (binarios externos)
+- Backend: FastAPI, Granian, Pydantic, SQLite (stdlib, WAL), yt-dlp + yt-dlp-ejs 0.8 (JS challenge solvers, corre sobre Deno) + Deno (runtime JS interno del extractor), curl-cffi 0.16 (TLS impersonation: sitios como TikTok rechazan el TLS de Python vanilla), FFmpeg/FFprobe (binarios externos)
 
 **Resolución de binarios (no depender del PATH global):**
 - `yt-dlp` 2026.8.19 es dependencia **Python** del uv env; se invoca siempre como `[sys.executable, "-m", "yt_dlp", ...]`, jamás como `yt-dlp` del PATH.
 - **Deno 2.9.6 vía pnpm** (devDependency raíz + `allowBuilds: { deno: true }` en `pnpm-workspace.yaml`, porque su binario se descarga en postinstall y pnpm 11 bloquea build scripts por defecto; `onlyBuiltDependencies` ya no existe en pnpm 11 → Ref. 10.3). Se le pasa a yt-dlp con `--js-runtimes deno:<path>`.
-- Orden de búsqueda en `adapters/tool_paths.py`: override explícito → `bin/` del bundle frozen (PyInstaller onedir, Fase 16; vacío en desarrollo) → `node_modules/.bin` del workspace → venv del uv → PATH. `web_dist` es frozen-aware (`config.default_web_dist`, `LMD_WEB_DIST` overridea).
+- Orden de búsqueda en `adapters/tool_paths.py`: override explícito → `bin/` del bundle frozen (PyInstaller onedir, Fase 16; vacío en desarrollo) → `node_modules/.bin` del workspace → venv del uv → PATH. La MISMA función resuelve en runtime y en Diagnostics (`detect_tools` compone argv con `yt_dlp_argv()`/`find_deno()`/`ffmpeg_argv()`/`ffprobe_argv()`); un detector que resuelva por su cuenta reporta una máquina que no existe (Ref: 17.6). `web_dist` es frozen-aware (`config.default_web_dist`, `LMD_WEB_DIST` overridea).
 - FFmpeg/FFprobe: `LMD_FFMPEG` > venv del uv > PATH.
 - Frontend: Svelte 5, Vite, TypeScript, Tailwind CSS, pnpm
 - Extension: TypeScript, Manifest V3, Vite
@@ -45,7 +45,7 @@ Monolito modular local-first con scheduler durable de jobs (asyncio, sin Celery/
 
 **Packaging:** Windows primero — PyInstaller onedir → Inno Setup. Binarios third-party bundled y pineados (FFmpeg LGPL preferible); THIRD_PARTY_NOTICES.md; licencia del proyecto Apache-2.0.
 
-**Suite de tests:** 661 (548 pytest en `apps/api` — 547 fast + 1 smoke `-m smoke` con servidor real + 3 live opt-in con `LMD_LIVE_NETWORK=1` — + 88 Vitest en `apps/web` + 25 Vitest en `apps/extension`)
+**Suite de tests:** 675 (562 pytest en `apps/api` — 561 fast (incluye 3 live opt-in con `LMD_LIVE_NETWORK=1` que skip por default) + 1 smoke `-m smoke` con servidor real — + 88 Vitest en `apps/web` + 25 Vitest en `apps/extension`)
 
 ---
 
@@ -69,3 +69,5 @@ Monolito modular local-first con scheduler durable de jobs (asyncio, sin Celery/
 11. Contrato de handoff browser→local: la extensión abre `<service>/?url=<encodeURIComponent(mediaUrl)>` y la SPA lee ese parámetro al arrancar para prellenar Resolve (sin router). La extensión **solo** habla con loopback: `host_permissions` = `http://127.0.0.1/*` + `http://localhost/*` (nunca `<all_urls>`), validado en `normalizeServiceUrl` y fijado por test; el probe de salud tiene timeout propio y nunca cuelga el popup. (Ref: 9.1)
 12. Frontera de seguridad (Fase 10, todo en `security.py` + middleware `security_boundary`): (a) bind refused si el host no es loopback; (b) `Host` y `Origin` deben ser loopback (anti DNS-rebinding; `Origin: null` se rechaza); (c) token de instalación en la tabla `settings`, comparado con `secrets.compare_digest`, obligatorio en todo `/api/*` salvo `/api/v1` y `/api/v1/health`; llega al dashboard por `<meta name="lmd-token">` + cookie `HttpOnly`/`SameSite=Strict` inyectados en el shell, y el SSE se autentica con la cookie porque EventSource no manda headers; (d) nunca se loguea el token (`register_secret` + redacción). Fuentes loopback/privadas/metadata se rechazan con `BLOCKED_SOURCE` (guarda SSRF) y credenciales embebidas en la URL también. (Ref: 10.1, 10.2)
 13. Ciclo de vida de datos (Fase 12): (a) el output final vive en `output_root` (config de operador, `LMD_OUTPUT_ROOT`, nunca seteable por API) bajo una regla cerrada (`flat`/`by_extractor`/`by_date`); el job dir solo guarda temporales que retention puede borrar; (b) duplicado = misma URL normalizada + mismo intent + job no-terminal (columna `dedupe_key` indexada; COMPLETED/FAILED/CANCELLED no cuentan); (c) retention mide edad por `updated_at` y el mantenimiento nunca lo toca — redactar/borrar no es una transición (Ref: 12.1); (d) retry manual resetea `attempt_count` y errores, y vale desde FAILED/CANCELLED/RECOVERY_REQUIRED.
+14. El progreso en vivo se parsea de la salida de yt-dlp con `--progress-template` + `RECORD_PREFIX` (`lmd` + `\x1f`); el template NO lleva el prefijo de tipo `download:` porque la herramienta lo consume, y su contrato se testea renderizando con `parse_options`/`evaluate_outtmpl` de yt-dlp, nunca armando la línea a mano. (Ref: 17.5)
+15. `yt-dlp-ejs` es dependencia declarada y se detecte por import (`version`, no `__version__`): sin él (o sin Deno) se pierden formatos de los sitios con JS challenge, y el bundle lo recoge con `collect_all` en `lmd.spec`. `THIRD_PARTY_NOTICES.md` declara licencias desde el `License-Expression` del metadata instalado (yt-dlp es Unlicense, no GPL).

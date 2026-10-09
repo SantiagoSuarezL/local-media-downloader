@@ -24,6 +24,9 @@ Formato de cada entrada: fecha, target/módulo, observación, hipótesis, estado
   exe con `LMD_DATA_DIR` temporal y puerto fresco (Regla 10.2) + `GET /`
   (prueba `default_web_dist` frozen) + `/api/v1/health` (binarios de `bin/`);
   matar el árbol al terminar.
+  Nota Sesión 33: el bundle ahora incluye `yt_dlp_ejs` (`collect_all` +
+  hiddenimport en `lmd.spec`) y `deno.exe` ya se stageaba, así que el smoke
+  debería poder verificar un YouTube con JS challenge de punta a punta.
   *Acción:* ninguna todavía; no bloquea el cierre con reservas.
 
 - **2026-10-08 — Primer `/health` tarda ~12.5 s por los tool probes en frío.**

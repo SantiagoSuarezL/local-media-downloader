@@ -23,10 +23,32 @@
 - 8.2 [API / Web]: el fallback SPA no responde `/api/*` — ver `lessons_learned_archive.md`.
 - 12.1 [Retention / tiempo]: el mantenimiento nunca toca `updated_at` — ver `lessons_learned_archive.md`.
 - 12.2 [API / FastAPI]: un endpoint que devuelve `Response` no puede anotar `dict` — ver `lessons_learned_archive.md`.
+- 14.1 [Python / Protocolos]: presence de miembro no prueba firma (runtime_checkable) — ver `lessons_learned_archive.md`.
+- 14.2 [Planner / Executor]: una capability que la estrategia no puede aplicar no viaja como detalle muerto — ver `lessons_learned_archive.md`.
 
 ---
 
 ## Reglas activas
+
+### Regla de Oro 17.6 [Diagnostics / herramientas]: el detector y el adapter resuelven binarios con la MISMA función
+
+**Error (Sesión 33, reporte del usuario):** la pestaña Diagnostics mostraba `deno: no` y `yt_dlp_ejs: no` mientras el servicio funcionaba: `detect_tools` probaba `"ffmpeg"`/`"deno"`/... por `PATH`, pero el runtime nunca usa el PATH (Deno se resuelve en `node_modules/.bin` vía `find_deno()`, ffmpeg en el venv). El reporte describía una máquina que no era la que corría los procesos.
+
+**Root Cause:** la resolución se implementó dos veces con criterios distintos. `adapters/tool_paths.py` (override → bundle → node_modules → venv → PATH) es la fuente de verdad, pero `diagnostics.py` la esquivó con nombres de ejecutable sueltos — el invariante de "no depender del PATH global" quedó escrito en `tech_stack.md` pero nunca se aplicó al detector. Además el probe de EJS leía `__version__`, atributo que el paquete no expone (es `version`), así que un EJS instalado se reportaba ausente igual.
+
+**Solución:** `detect_tools` compone sus argv con `yt_dlp_argv()`/`find_deno()`/`ffmpeg_argv()`/`ffprobe_argv()` (los mismos del adapter) y `_ejs_version()` acepta ambas grafías; se sigue reportando solo la primera línea de salida para no filtrar paths (health es reachable sin token). `tests/test_diagnostics.py` (11 tests) fija que el argv del probe ES el argv del adapter, que Deno fuera del PATH igual se detecta, y que timeout/ausencia se reportan `detected: false`.
+
+**Regla de Oro:** *Un diagnóstico que resuelve herramientas por su cuenta describe un entorno que no existe: el probe tiene que componerse con la misma función de resolución que usa el runtime (test que lo fije), y "detected" significa "lo va a ejecutar", no "lo encuentro en el PATH".*
+
+### Regla de Oro 17.5 [Adapters / CLI]: el prefijo de tipo de un `--progress-template` lo consume la herramienta, y el test que arma la línea a mano valida la suposición
+
+**Error (Sesión 33, reporte del usuario):** Downloaded / Speed / ETA siempre `—` y la barra en vivo nunca se movía (solo saltaba 0→100% al completar, desde el valor persistido en DB). El parser exigía líneas con prefijo `download:lmd\x1f`; el `TEMPLATE` de `adapters/progress.py` empezaba con `"download:"`, pero en `--progress-template` ese `download:` es la CLAVE del tipo de salida (`progress_template["download"]`) y yt-dlp la consume: lo que se imprime empieza en `lmd\x1f`. Toda línea de progreso se descartaba en silencio (`parse_progress_line` devuelve `None` y el loop sigue).
+
+**Root Cause:** el test construía la línea con `_line()` replicando la suposición equivocada, así que la suite entera pasaba con el protocolo roto (mismo patrón que 17.1/17.2: el test fijaba la implementación, no el contrato con la herramienta). El parser era correcto; el que mentía era el template.
+
+**Solución:** el template ya no lleva prefijo de tipo (ni el `\n` final, que `--newline` ya pone) y `parse_progress_line` matchea `RECORD_PREFIX`. El contrato nuevo se verifica con las piezas reales de yt-dlp: `parse_options([...])` devuelve `progress_template["download"]` (prueba de que el prefijo se consume) y `YoutubeDL.evaluate_outtmpl` renderiza la línea como lo hace `_report_progress_status` (incluido el `NA` de los campos ausentes) — `test_rendered_record_from_ytdlp_option_parsing_parses`. Verificado end-to-end contra la herramienta real: 0 registros antes, 15 con bytes/velocidad/ETA después.
+
+**Regla de Oro:** *Cuando el protocolo de progreso lo produce una herramienta externa, el test tiene que producir la línea con la herramienta (su parser de opciones y su renderer de templates), no con un f-string que replica lo que creemos que imprime: un test que arma la línea a mano valida la suposición, no el contrato.*
 
 ### Regla de Oro 17.4 [Servicio / shutdown]: un stream infinito más kill-timeout deshabilitado = Ctrl+C que no para
 
@@ -67,23 +89,3 @@
 **Solución (Sesión 27):** `_NETWORK` suma `name or service not known|failed to resolve|name resolution` (la regla ya estaba antes que `_BROKEN_EXTRACTOR`, el orden no se tocó) + 2 filas de regresión en `test_adapter_errors.py` con stderr estilo glibc que también contiene "Unable to download webpage" (prueban que la causa específica gana por orden).
 
 **Regla de Oro:** *Si clasificás stderr de una herramienta externa por regex, cada causa necesita sus variantes por plataforma (glibc vs Winsock como mínimo); y el test de regresión debe incluir la línea wrapper completa para probar que la causa específica gana por orden de reglas.*
-
-### Regla de Oro 14.2 [Planner / Executor]: un flag que la estrategia elegida no puede ejecutar no se propaga — fuerza la estrategia o se rechaza
-
-**Error:** el slice audio normalization (Sesión 19) propagaba `audio_normalize` como detalle a TODOS los plan steps, incluidos REMUX (`-c copy`) y VIDEO_ONLY (sin pista de audio). Con una fuente copy-compatible (el caso común mp4→mp4) el plan elegía strategy "copy" y la normalización nunca se aplicaba. Además el executor pasaba `audio_normalize=` incondicionalmente a `transcode`, y cualquier procesador con firma de Fase 4 (compatibilidad documentada, Regla 14.1) reventaba con TypeError — enmascarado agregando `**kwargs` al stub `_LegacyTranscoder` del test viejo.
-
-**Root Cause:** el flag se modeló como metadata del plan ("poné la key en todos los steps") en vez de como una restricción de estrategia (loudnorm es un filtro: re-encode obligatorio → pertenece a la condición `compatible`, igual que trim/resize/crop/encode). Y al extender la llamada a `transcode`, el único guardián de compatibilidad (`_supports_encode_options`) sólo se evaluaba con bitrate/framerate presentes: el kwarg nuevo quedó fuera de la verificación y el test legacy se "arregló" perdiendo su propósito.
-
-**Solución (Sesión 20):** `audio_normalize` entra al check `compatible` del plan full-video (fuerza TRANSCODE); se rechaza con UNSUPPORTED_INTENT para `audio=remove` y presets; fuera de los steps de stream copy (un detalle muerto promete algo que el step no hace). El executor reenvía el kwarg sólo si fue pedido y el procesador lo declara (`_supports_audio_normalize`, inspección de firma como Regla 14.1); pedido-pero-no-soportado → UNSUPPORTED_INTENT. `_LegacyTranscoder` restaurado a su firma original y la feature blindada con su matriz de capability (`test_audio_normalize.py`, §528).
-
-**Regla de Oro:** *Una capability nueva que una estrategia del plan no puede aplicar nunca viaja como detalle muerto: o fuerza la estrategia que la aplica (check `compatible` del planner) o se rechaza antes de ejecutar. Y al extender lo que el executor pasa a un método ya existente de un puerto, el reenvío es condicional a la firma real — jamás se afloja un stub viejo para absorber el kwarg nuevo (ese test es precisamente el guardian de la compatibilidad).*
-
-### Regla de Oro 14.1 [Python / Protocolos]: un protocolo runtime_checkable que redeclara un método existente no detecta nada
-
-**Error:** el slice encode-options de Fase 14 definió `VideoEncodeOptionsTool` — protocolo `runtime_checkable` cuyo único miembro es `transcode`, nombre que `MediaTool` ya declara. Pyright falló dos veces: "Class overlaps ... unsafely and could produce a match at runtime" sobre el `isinstance`, y el unpack `**_EncodeKwargs` no matcheaba parámetros porque en la intersección `MediaTool & VideoEncodeOptionsTool` la llamada se resuelve contra la firma de `MediaTool`.
-
-**Root Cause:** `isinstance` contra un protocolo `runtime_checkable` sólo verifica *presencia* de miembros, jamás firmas. Como todo `MediaTool` tiene `transcode` (los stubs de la Fase 4 incluidos), el guardián daba `True` para procesadores que rechazarían los kwargs con `TypeError` en runtime — pyright señalaba un bug latente, no ruido de tipeo. `TrimTool`/`ResizeTool`/`CropTool` funcionan porque sus nombres (`transcode_trimmed`, `resize`, `crop`) no existen en `MediaTool`: ahí presencia sí prueba capacidad.
-
-**Solución:** la capacidad se verifica desde la firma real (`_supports_encode_options` con `inspect.signature(processor.transcode).parameters`) y la llamada se hace vía `cast(VideoEncodeOptionsTool, ...)`; el protocolo dejó de ser `runtime_checkable` y su docstring documenta por qué.
-
-**Regla de Oro:** *Para detectar en runtime una extensión de firma de un método que ya existe en el protocolo base, nunca uses `isinstance` runtime_checkable (presencia no prueba firma, y pyright lo marca como overlap inseguro): inspeccioná `inspect.signature` o dale a la capacidad un nombre de método propio.*
