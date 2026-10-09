@@ -19,6 +19,7 @@
 - Gap de spec: `TECHNICAL_SPEC` §exige `yt-dlp-ejs` desde la Fase 1 pero nunca estuvo en `pyproject.toml` (`tech_stack.md` lo declaraba, el venv no lo tenía). Agregado `yt-dlp-ejs>=0.3.2` (lock 0.8.0) + `collect_all`/hiddenimport en `lmd.spec` + THIRD_PARTY_NOTICES; además corregí la licencia de yt-dlp en el notice (es The Unlicense, no "GPL v3" — verificado en el metadata del dist-info).
 - Gates: ruff/pyright 0, pytest 561 fast + smoke 1, prettier/eslint/svelte-check, 88+25 Vitest. Total 675. Reglas 17.5 y 17.6 agregadas; 14.1/14.2 archivadas por rotación.
 - CI: el usuario preguntó por qué corría en cada commit → `paths-ignore: ['**.md', 'docs/**', '.agent/**']` en `push` y `pull_request` (con comentario que nombra la regla: nada del build lee `.md`; los tests de packaging leen `pyproject.toml`/`lmd.spec`). Verificado: YAML parsea, prettier limpio, `main` sin branch protection (sin required checks que puedan quedar esperando).
+- Push en 4 commits (`d4b1767` fix, `e7c19de` ci, `7b1d402` docs memoria, `6f3ae66` fix de test). El primer push dejó CI **rojo en ambos OS**: mi `test_only_the_version_line_is_reported` asumía que Deno resuelve, y el job `backend` no corre `pnpm install` (eso es del job `frontend`). Fix: stagear el Deno con `monkeypatch`, verificado localmente ocultando `node_modules/.bin\deno` (11 passed) antes de re-pushear. Regla 17.7.
 
 ---
 

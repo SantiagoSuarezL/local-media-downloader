@@ -30,6 +30,16 @@
 
 ## Reglas activas
 
+### Regla de Oro 17.7 [Tests / entorno]: un test de resolución de herramientas tiene que stagear la herramienta que dice probar
+
+**Error (Sesión 33, CI rojo en ambos OS al primer push):** `test_only_the_version_line_is_reported` afirmaba que las 4 herramientas reportan su primera línea, pero daba por hecho que Deno resuelve. Localmente resuelve (el dev tiene `node_modules/.bin/deno`); el job `backend` de CI **no corre `pnpm install`** (eso es del job `frontend`), así que ahí `find_deno()` devuelve `None` y la aserción recibía `None != "1.2.3"`. Verde local, rojo en CI, en los dos OS.
+
+**Root Cause:** el test mezcló dos responsabilidades: verificar el recorte de la salida **y** afirmar la presencia del binario. La presencia depende del entorno (dev con pnpm vs CI sin pnpm), el recorte no: un test que depende del entorno es una apuesta por tu máquina.
+
+**Solución:** el test stagea el Deno que dice probar (los 11 tests de `test_diagnostics.py` stagean lo que necesitan). Verificación sin esperar a CI: `Rename-Item node_modules\.bin\deno deno.hidden` → 11 passed → restaurar.
+
+**Regla de Oro:** *Si un test depende de una resolución de binario, stageá el binario en `tmp_path`/`monkeypatch` en vez de confiar en el entorno: el job de CI del backend no instala dependencias de pnpm, y un test verde local que muere en CI es la forma más cara de aprender la lección (mismo origen que 17.3, pero por presencia y no por versión).*
+
 ### Regla de Oro 17.6 [Diagnostics / herramientas]: el detector y el adapter resuelven binarios con la MISMA función
 
 **Error (Sesión 33, reporte del usuario):** la pestaña Diagnostics mostraba `deno: no` y `yt_dlp_ejs: no` mientras el servicio funcionaba: `detect_tools` probaba `"ffmpeg"`/`"deno"`/... por `PATH`, pero el runtime nunca usa el PATH (Deno se resuelve en `node_modules/.bin` vía `find_deno()`, ffmpeg en el venv). El reporte describía una máquina que no era la que corría los procesos.
