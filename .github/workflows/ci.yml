@@ -1,9 +1,15 @@
 name: CI
 
+# Triggered by events, so the workflow would run all four jobs for a commit that
+# only touches documentation. paths-ignore skips the run when EVERY changed file
+# matches (a commit that also touches code still runs everything). Nothing in the
+# build reads .md files: the packaging tests read pyproject.toml and lmd.spec.
 on:
   push:
     branches: [main]
+    paths-ignore: ['**.md', 'docs/**', '.agent/**']
   pull_request:
+    paths-ignore: ['**.md', 'docs/**', '.agent/**']
   workflow_dispatch:
 
 concurrency:
