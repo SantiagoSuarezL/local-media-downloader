@@ -1,7 +1,7 @@
 import type { JobDto } from '@lmd/contracts'
 import { get } from 'svelte/store'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { live, mergeLive, startLiveUpdates, stopLiveUpdates } from '../src/lib/live'
+import { live, mergeLive, startLiveUpdates, stopLiveUpdates, type LiveJob } from '../src/lib/live'
 
 type Listener = (message: { data: string }) => void
 
@@ -99,6 +99,7 @@ describe('startLiveUpdates', () => {
       totalBytes: 200,
       speed: 10,
       eta: 5,
+      updatedAt: expect.any(Number),
     })
   })
 
@@ -116,6 +117,7 @@ describe('startLiveUpdates', () => {
       totalBytes: null,
       speed: null,
       eta: null,
+      updatedAt: expect.any(Number),
     })
   })
 
@@ -147,6 +149,21 @@ describe('stopLiveUpdates', () => {
   })
 })
 
+function makeLive(overrides: Partial<LiveJob> = {}): LiveJob {
+  return {
+    job_id: 'job-1',
+    state: null,
+    stage: null,
+    percentage: null,
+    downloadedBytes: null,
+    totalBytes: null,
+    speed: null,
+    eta: null,
+    updatedAt: 0,
+    ...overrides,
+  }
+}
+
 describe('mergeLive', () => {
   it('returns the job untouched without live data', () => {
     const job = makeJob()
@@ -154,57 +171,32 @@ describe('mergeLive', () => {
   })
 
   it('overrides state, stage and progress from the stream', () => {
-    const merged = mergeLive(makeJob({ progress: 0.1 }), {
-      job_id: 'job-1',
-      state: 'DOWNLOADING',
-      stage: 'download',
-      percentage: 50,
-      downloadedBytes: 5,
-      totalBytes: 10,
-      speed: 1,
-      eta: 2,
-    })
+    const merged = mergeLive(
+      makeJob({ progress: 0.1 }),
+      makeLive({
+        state: 'DOWNLOADING',
+        stage: 'download',
+        percentage: 50,
+        downloadedBytes: 5,
+        totalBytes: 10,
+        speed: 1,
+        eta: 2,
+      }),
+    )
     expect(merged.state).toBe('DOWNLOADING')
     expect(merged.current_stage).toBe('download')
     expect(merged.progress).toBe(0.5)
   })
 
   it('clamps out-of-range percentages instead of breaking the bar', () => {
-    const over = mergeLive(makeJob(), {
-      job_id: 'job-1',
-      state: null,
-      stage: null,
-      percentage: 150,
-      downloadedBytes: null,
-      totalBytes: null,
-      speed: null,
-      eta: null,
-    })
+    const over = mergeLive(makeJob(), makeLive({ percentage: 150 }))
     expect(over.progress).toBe(1)
-    const under = mergeLive(makeJob({ progress: 0.3 }), {
-      job_id: 'job-1',
-      state: null,
-      stage: null,
-      percentage: -20,
-      downloadedBytes: null,
-      totalBytes: null,
-      speed: null,
-      eta: null,
-    })
+    const under = mergeLive(makeJob({ progress: 0.3 }), makeLive({ percentage: -20 }))
     expect(under.progress).toBe(0)
   })
 
   it('falls back to the stored job when the stream has gaps', () => {
-    const merged = mergeLive(makeJob({ progress: 0.3, current_stage: 'queued' }), {
-      job_id: 'job-1',
-      state: null,
-      stage: null,
-      percentage: null,
-      downloadedBytes: null,
-      totalBytes: null,
-      speed: null,
-      eta: null,
-    })
+    const merged = mergeLive(makeJob({ progress: 0.3, current_stage: 'queued' }), makeLive())
     expect(merged.state).toBe('QUEUED')
     expect(merged.progress).toBe(0.3)
     expect(merged.current_stage).toBe('queued')

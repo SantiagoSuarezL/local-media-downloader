@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { STATE_TONE, formatBytes, formatDuration, formatEta, isTerminal } from '../src/lib/format'
+import {
+  STATE_TONE,
+  formatBytes,
+  formatDuration,
+  formatEta,
+  formatRelativeTime,
+  isTerminal,
+} from '../src/lib/format'
 
 describe('formatBytes', () => {
   it('formats bytes without decimals', () => {
@@ -90,5 +97,28 @@ describe('STATE_TONE', () => {
     ]) {
       expect(STATE_TONE[state]).toBeTruthy()
     }
+  })
+})
+
+describe('formatRelativeTime', () => {
+  const now = new Date('2026-10-08T12:00:00Z').getTime()
+
+  it('reads as "just now" for the last few seconds', () => {
+    expect(formatRelativeTime('2026-10-08T11:59:58Z', now)).toBe('just now')
+  })
+
+  it('scales from seconds to days', () => {
+    expect(formatRelativeTime('2026-10-08T11:59:30Z', now)).toBe('30s ago')
+    expect(formatRelativeTime('2026-10-08T11:57:00Z', now)).toBe('3 min ago')
+    expect(formatRelativeTime('2026-10-08T09:00:00Z', now)).toBe('3h ago')
+    expect(formatRelativeTime('2026-10-06T12:00:00Z', now)).toBe('2d ago')
+  })
+
+  it('falls back to the absolute date beyond a month', () => {
+    expect(formatRelativeTime('2026-08-01T12:00:00Z', now)).not.toMatch(/ago$/)
+  })
+
+  it('renders an unparseable date as an em dash, never "NaN ago"', () => {
+    expect(formatRelativeTime('not-a-date', now)).toBe('—')
   })
 })

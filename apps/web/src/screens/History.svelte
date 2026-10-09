@@ -1,7 +1,12 @@
 <script lang="ts">
   import type { CleanupReport, JobDto } from '@lmd/contracts'
   import { api } from '../lib/api'
-  import { STATE_TONE, formatTimestamp } from '../lib/format'
+  import { formatRelativeTime, formatTimestamp } from '../lib/format'
+  import { isTerminalState } from '../lib/jobState'
+  import Button from '../lib/components/Button.svelte'
+  import Spinner from '../lib/components/Spinner.svelte'
+  import StateBadge from '../lib/components/StateBadge.svelte'
+  import { live, mergeLive, startLiveUpdates } from '../lib/live'
 
   interface Props {
     onopen?: (id: string) => void
@@ -24,6 +29,8 @@
   let retrying = $state<string | null>(null)
   let cleaning = $state(false)
   let cleanupReport = $state<CleanupReport | null>(null)
+
+  startLiveUpdates()
 
   function statesFor(value: Filter): string[] | undefined {
     if (value === 'ALL') {
@@ -112,6 +119,22 @@
 
   void refresh()
 
+  /**
+   * Re-read the durable list when a job *state* changes, never on progress
+   * ticks. History used to listen to nothing at all, so its table went stale
+   * the moment it was rendered while the Dashboard kept moving: two screens
+   * disagreeing about the same job. SQLite stays the record (ENGINEERING_PRINCIPLES #10).
+   */
+  $effect(() => {
+    const signature = Object.values($live)
+      .map((entry) => `${entry.job_id}:${entry.state}`)
+      .sort()
+      .join('|')
+    if (signature) {
+      void refresh()
+    }
+  })
+
   const visible = $derived(
     jobs.filter((job) => {
       const needle = query.trim().toLowerCase()
@@ -122,34 +145,38 @@
       )
     }),
   )
+
+  function isInFlight(job: JobDto): boolean {
+    return !isTerminalState(mergeLive(job, $live[job.id]).state)
+  }
 </script>
 
 <section class="flex flex-col gap-6">
   <div class="flex flex-wrap items-center justify-between gap-3">
-    <h1 class="text-lg font-semibold text-neutral-100">History</h1>
+    <h1 class="text-lg font-semibold text-ink">History</h1>
     <div class="flex items-center gap-2">
       <input
         type="search"
-        class="rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-1.5 text-sm text-neutral-100"
+        class="rounded-lg border border-seam bg-panel px-3 py-1.5 text-sm text-ink placeholder:text-ink-4"
         placeholder="Filter by title or URL"
         bind:value={query}
       />
-      <button
-        type="button"
-        class="rounded-lg border border-neutral-800 px-3 py-1.5 text-xs text-neutral-400 hover:text-neutral-200 disabled:opacity-50"
-        disabled={cleaning}
+      <!-- Destructive and irreversible, so it is outlined, never filled, and it
+           sits at the end of the row rather than next to the search field. -->
+      <Button
+        variant="danger"
+        icon="cleanup"
+        busy={cleaning}
         onclick={() => void cleanup()}
         title="Apply retention now: redact old URLs, delete old history"
       >
-        {cleaning ? 'Cleaning…' : 'Run cleanup'}
-      </button>
+        Run cleanup
+      </Button>
     </div>
   </div>
 
   {#if cleanupReport}
-    <p
-      class="rounded-lg border border-neutral-800 bg-neutral-900/60 px-3 py-2 text-xs text-neutral-400"
-    >
+    <p class="rounded-lg border border-seam bg-panel px-3 py-2 text-xs text-ink-2">
       Cleanup: {cleanupReport.urls_redacted} URLs redacted · {cleanupReport.jobs_deleted} jobs deleted
       · {cleanupReport.directories_deleted} directories deleted{#if cleanupReport.errors.length > 0}
         · {cleanupReport.errors.length} errors{/if}
@@ -160,9 +187,11 @@
     {#each FILTERS as option (option)}
       <button
         type="button"
-        class="rounded-full border px-3 py-1 text-xs {filter === option
-          ? 'border-sky-600 bg-sky-950/50 text-sky-200'
-          : 'border-neutral-800 text-neutral-400 hover:text-neutral-200'}"
+        class="rounded-full border px-3 py-1 text-xs transition-colors duration-150 {filter ===
+        option
+          ? 'border-accent-dim bg-accent-wash text-accent-ink'
+          : 'border-seam text-ink-3 hover:border-seam-strong hover:text-ink-2'}"
+        aria-pressed={filter === option}
         onclick={() => select(option)}
       >
         {option}
@@ -171,58 +200,90 @@
   </div>
 
   {#if error}
-    <p class="rounded-lg border border-red-900 bg-red-950/40 px-3 py-2 text-sm text-red-300">
+    <p class="rounded-lg border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
       {error}
     </p>
   {/if}
 
-  <div class="overflow-x-auto rounded-xl border border-neutral-800">
+  <div class="overflow-x-auto rounded-xl border border-seam">
     <table class="w-full text-left text-xs">
-      <thead class="bg-neutral-900/60 text-neutral-500">
+      <thead class="bg-panel text-ink-3">
         <tr>
-          <th class="px-3 py-2">Title</th>
-          <th class="px-3 py-2">State</th>
-          <th class="px-3 py-2">Priority</th>
-          <th class="px-3 py-2">Created</th>
-          <th class="px-3 py-2">Attempts</th>
-          <th class="px-3 py-2">Error</th>
+          <th class="px-3 py-2 font-medium">Title</th>
+          <th class="px-3 py-2 font-medium">State</th>
+          <th class="px-3 py-2 font-medium">Priority</th>
+          <th class="px-3 py-2 font-medium">Created</th>
+          <th class="px-3 py-2 font-medium">Attempts</th>
+          <th class="px-3 py-2 font-medium">Error</th>
           <th class="px-3 py-2"><span class="sr-only">Actions</span></th>
         </tr>
       </thead>
       <tbody>
         {#each visible as job (job.id)}
-          <tr class="border-t border-neutral-800/80 hover:bg-neutral-900/40">
-            <td class="px-3 py-2">
-              <button
-                type="button"
-                class="max-w-80 truncate text-left text-neutral-200 hover:text-sky-300"
-                onclick={() => onopen?.(job.id)}
-              >
-                {job.title ?? job.source_url ?? job.id}
-              </button>
+          {@const merged = mergeLive(job, $live[job.id])}
+          <!--
+            The whole row is the target. It already looked clickable (it had a
+            hover highlight) while only its title button actually was, which is
+            the worst of both: an affordance that lies. role/tabindex make the
+            row a legitimate interactive element for assistive tech. The in-flight
+            tint is decoration, not state, so it carries no ARIA: `aria-selected`
+            is not valid on role=button and the StateBadge column already
+            reports the job's state in words.
+          -->
+          <tr
+            class="border-t border-seam/70 transition-colors duration-150
+              {isInFlight(job) ? 'bg-accent-wash/30' : 'hover:bg-panel'}
+            focus-visible:bg-panel"
+            role="button"
+            tabindex="0"
+            onclick={() => onopen?.(job.id)}
+            onkeydown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                onopen?.(job.id)
+              }
+            }}
+          >
+            <td class="max-w-80 truncate px-3 py-2 text-ink-2">
+              {job.title ?? job.source_url ?? job.id}
             </td>
-            <td class="px-3 py-2 {STATE_TONE[job.state] ?? 'text-neutral-400'}">{job.state}</td>
-            <td class="px-3 py-2 text-neutral-400">{job.priority}</td>
-            <td class="px-3 py-2 text-neutral-400">{formatTimestamp(job.created_at)}</td>
-            <td class="px-3 py-2 text-neutral-400">{job.attempt_count}</td>
-            <td class="px-3 py-2 text-red-400">{job.error_code ?? '—'}</td>
+            <td class="px-3 py-2">
+              <StateBadge state={merged.state} />
+            </td>
+            <td class="fig px-3 py-2 text-ink-3">{job.priority}</td>
+            <td class="fig px-3 py-2 text-ink-3" title={formatTimestamp(job.created_at)}>
+              {formatRelativeTime(job.created_at)}
+            </td>
+            <td class="fig px-3 py-2 text-ink-3">{job.attempt_count}</td>
+            <td class="px-3 py-2 text-crit">{job.error_code ?? '—'}</td>
             <td class="px-3 py-2 text-right">
-              {#if RETRYABLE.includes(job.state)}
-                <button
-                  type="button"
-                  class="rounded border border-neutral-700 px-2 py-0.5 text-xs text-neutral-300 hover:border-sky-600 hover:text-sky-300 disabled:opacity-50"
-                  disabled={retrying === job.id}
-                  onclick={() => void retry(job.id)}
+              {#if RETRYABLE.includes(merged.state)}
+                <!-- stopPropagation: the row is also a button now, and a retry
+                     click bubbling up would open the job detail on top of it. -->
+                <Button
+                  variant="ghost"
+                  icon="retry"
+                  busy={retrying === job.id}
+                  onclick={(event) => {
+                    event.stopPropagation()
+                    void retry(job.id)
+                  }}
                 >
-                  {retrying === job.id ? '…' : 'Retry'}
-                </button>
+                  Retry
+                </Button>
               {/if}
             </td>
           </tr>
         {:else}
           <tr>
-            <td colspan="7" class="px-3 py-6 text-center text-neutral-500">
-              {loading ? 'Loading…' : 'No jobs match.'}
+            <td colspan="7" class="px-3 py-6 text-center text-ink-3">
+              {#if loading}
+                <span class="inline-flex items-center gap-2">
+                  <Spinner /> Loading history…
+                </span>
+              {:else}
+                No jobs match.
+              {/if}
             </td>
           </tr>
         {/each}
@@ -231,13 +292,6 @@
   </div>
 
   {#if nextCursor}
-    <button
-      type="button"
-      class="mx-auto rounded-lg border border-neutral-800 px-4 py-2 text-sm text-neutral-300 hover:text-neutral-100 disabled:opacity-50"
-      disabled={loading}
-      onclick={() => void loadMore()}
-    >
-      {loading ? 'Loading…' : 'Load more'}
-    </button>
+    <Button class="mx-auto" busy={loading} onclick={() => void loadMore()}>Load more</Button>
   {/if}
 </section>

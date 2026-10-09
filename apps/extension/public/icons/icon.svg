@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Toolbar icon master. The bolt is the project mark (same path as
+  apps/web/public/favicon.svg) recolored to the committed sky accent, on a
+  well-token tile. Rasterized once into icon-{16,32,48,128}.png; commit those
+  PNGs so the build never depends on a browser being available.
+
+  Regeneration recipe (headless Chrome; Edge headless is policy-locked on
+  managed machines and renders empty, and this class of build also renders
+  window-size 128 empty, so 128 comes from a 256 capture downscaled):
+    1. Wrap this SVG in: <style>html,body{margin:0}svg{display:block;
+       width:100vw;height:100vh}</style>
+    2. chrome --headless=new --disable-gpu --force-device-scale-factor=1
+       --hide-scrollbars --no-first-run --no-default-browser-check
+       --user-data-dir=<tmp> --default-background-color=00000000
+       --screenshot=icon-<N>.png --window-size=<N>,<N> file:///<wrapper>.html
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="lmd-mark" x1="16" y1="5" x2="112" y2="122" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7dd3fc" />
+      <stop offset=".55" stop-color="#38bdf8" />
+      <stop offset="1" stop-color="#0369a1" />
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="29" fill="#0e1116" />
+  <rect
+    x="1.35"
+    y="1.35"
+    width="125.3"
+    height="125.3"
+    rx="27.65"
+    fill="none"
+    stroke="#2e343f"
+    stroke-width="2.7"
+  />
+  <path
+    fill="url(#lmd-mark)"
+    d="M25.946 44.938c-.664.845-2.021.375-2.021-.698V33.937a2.26 2.26 0 0 0-2.262-2.262H10.287c-.92 0-1.456-1.04-.92-1.788l7.48-10.471c1.07-1.497 0-3.578-1.842-3.578H1.237c-.92 0-1.456-1.04-.92-1.788L10.013.474c.214-.297.556-.474.92-.474h28.894c.92 0 1.456 1.04.92 1.788l-7.48 10.471c-1.07 1.498 0 3.579 1.842 3.579h11.377c.943 0 1.473 1.088.89 1.83L25.947 44.94z"
+    transform="scale(2.6667) translate(0 1.5)"
+  />
+</svg>

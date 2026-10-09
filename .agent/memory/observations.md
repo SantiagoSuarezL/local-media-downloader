@@ -10,6 +10,20 @@ Formato de cada entrada: fecha, target/módulo, observación, hipótesis, estado
 
 ## En curso
 
+- **2026-10-08 — Bytes/Speed/ETA no son durables: solo existen mientras corre el stream.**
+  Target `apps/web/src/screens/JobDetails.svelte` + registro del job en backend.
+  Las filas Downloaded/Speed/ETA solo se pintan cuando hay entrada viva del
+  SSE; cuando el job termina y la entrada se purga (o se abre la app después),
+  no hay dónde leerlas — el usuario lo reportó como filas con `—` permanentes
+  (Sesión 34: se corrigió ocultándolas cuando no hay dato, que es lo honesto).
+  Pero "ver el tamaño final de una descarga completada" no existe como dato
+  durable en ningún lado.
+  *Hipótesis:* persistir `downloaded_bytes`/`total_bytes` (o el tamaño del
+  output vía stat del archivo final) en el registro del job al completar es
+  un cambio chico de schema/API si el usuario lo pide.
+  *Estado:* abierto — pendiente decisión del usuario (ofrecido en Sesión 34).
+  *Acción:* ninguna todavía.
+
 - **2026-10-08 — Smoke del bundle frozen pendiente (reserva del cierre Fase 16).**
   Target `apps/api/lmd.spec` + `lmd_entry.py` + `packaging/stage_bundle.ps1`.
   El spec portable compila (PyInstaller 6.22.3 onedir OK, 3 builds); el primer
@@ -76,21 +90,34 @@ Formato de cada entrada: fecha, target/módulo, observación, hipótesis, estado
   actual (va última y con cliente fresco: el 413 se responde sin consumir el
   body y reutilizar ese keep-alive envenena la siguiente petición).
 
-- **2026-10-06 — Extensión y flujo de token nunca ejecutados en un browser real.**
+- **2026-10-08 — Extensión y flujo de token: verificados en Chromium (Thorium);
+  Firefox sigue sin probar.**
   `apps/extension` (popup, handoff, health) y el camino de autenticación de Fase 10
   (`<meta name="lmd-token">` → header en `apps/web/src/lib/api.ts`, cookie
   `HttpOnly`/`SameSite=Strict`, SSE autenticado por cookie porque `EventSource`
-  no manda headers) están cubiertos por tests de lógica pura y de contratos, pero
-  **nunca se ejecutaron en Chrome ni Firefox**.
-  *Hipótesis:* lo único que puede fallar sin que los tests lo detecten es (1) el
-  render del popup y su CSS, (2) la CSP default de MV3 bloqueando el `fetch` del
-  popup a `127.0.0.1`, (3) el `SameSite=Strict` de la cookie contra el SSE, y
-  (4) la detección Chrome/Firefox del bridge (`apps/extension/src/browser/index.ts`).
-  *Estado:* abierto por decisión explícita del usuario — no se prueba hasta Fase 16
-  (Packaging), que es la primera fase donde la extensión se distribuye de verdad.
-  *Acción:* en Fase 16, con `apps/extension/dist` compilado: cargar la extensión
-  unpacked en Chrome y Firefox contra el servicio real y recorrer el checklist de
-  arriba. Si algo falla, se corrige ahí (Fase 16/17) y se promueve a Regla de Oro.
+  no manda headers) estaban cubiertos por tests de lógica pura y de contratos, pero
+  **nunca se habían ejecutado en un browser real**. El usuario los probó con la
+  extensión cargada unpacked en **Thorium** (fork de Chromium, no Chrome) y con
+  descargas reales de **YouTube, Twitter y TikTok**, preset "best available"
+  incluido. Ningún fallo reportado.
+  *Riesgos del checklist original y estado de cada uno:* (1) render del popup + CSS
+  → resuelto (el popup se usó para disparar las descargas); (2) CSP default de MV3
+  bloqueando el `fetch` del popup a `127.0.0.1` → resuelto (handoff + resolve
+  contra el servicio real funcionaron); (3) `SameSite=Strict` de la cookie contra el
+  SSE → **no confirmado**: el usuario no mencionó observar el progreso en vivo en el
+  dashboard; (4) detección Chrome/Firefox del bridge
+  (`apps/extension/src/browser/index.ts`) → rama Chromium ejercitada por inferencia
+  (Thorium expone la API `chrome.*`), **rama Firefox sin probar**. Tampoco se
+  recorrieron el resto de las funcionalidades (ajustes, diagnósticos, batch,
+  historial, priority, presets/stickers, advanced processing).
+  *Estado:* **parcialmente resuelto** — la clase Chromium queda verificada en la
+  práctica. Resta la clase Firefox y el camino SSE/cookie por observación directa
+  (MV3 está soportado en Firefox 109+, pero el bridge y el build de
+  `apps/extension` son específicos del browser).
+  *Acción:* cuando el usuario pueda, repetir con `apps/extension/dist` compilado en
+  Firefox contra el servicio real y observar el progreso en vivo para confirmar (3).
+  Si el SSE fallara por cookie en Firefox, se corrige y se promueve a Regla de Oro;
+  si todo pasa, esta observación se archiva en `observations_archive.md`.
 
   (La observación anterior del `.gitignore` heredado se cerró en Fase 8 y vive en
   `observations_archive.md`, blindada por la Regla de Oro 8.1.)

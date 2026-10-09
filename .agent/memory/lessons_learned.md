@@ -30,6 +30,26 @@
 
 ## Reglas activas
 
+### Regla de Oro 17.9 [Dev / Windows]: matar el wrapper `uv` deja python huérfano, y dos servidores pueden escuchar el MISMO puerto por SO_REUSEADDR
+
+**Error (Sesión 34, verificación end-to-end):** tras fixear el serving de fuentes, el curl contra el servidor "nuevo" seguía recibiendo el HTML viejo — el fix parecía no funcionar pese a estar corriendo el proceso correcto.
+
+**Root Cause:** `Stop-Process` sobre el PID de `uv run` mata el wrapper, no al hijo `python.exe` (Granian). El proceso viejo quedó como dueño del puerto, el nuevo attacheó al mismo por SO_REUSEADDR, y las conexiones fueron todas al viejo. El mismo patrón de huérfanos ya había dejado 5 ffmpeg zombie en la reserva de Fase 16: es el segundo aviso de esta máquina.
+
+**Solución:** antes de interpretar la respuesta de un puerto, verificar el dueño del socket por PID (`Get-NetTCPConnection ... OwningProcess`); matar el árbol por CommandLine (`Win32_Process` matcheando `local_media_downloader`), no por PID del wrapper; y ante cualquier duda, puerto fresco en vez de reutilizar.
+
+**Regla de Oro:** *Toda verificación contra un servidor real en Windows empieza comprobando el PID dueño del puerto y termina matando por CommandLine: el wrapper deja huérfano al backend, un SO_REUSEADDR hace que tu curl lea el proceso equivocado, y el fix correcto parecerá rojo. Es la aplicación de 10.2 (probar que el puerto es tuyo) a la vida del dev loop.*
+
+### Regla de Oro 17.8 [Web / Serving]: un asset nuevo del dist root detrás del catch-all SPA llega como `text/html` — el test asserta content-type, no status
+
+**Error (Sesión 34, self-host de Archivo):** los `fonts/*.woff2` y el favicon nuevo pedidos al servicio recibían el shell HTML con 200; la fuente "no funcionaba" sin ningún error visible y el dashboard caía silenciosamente al stack del sistema.
+
+**Root Cause:** `_mount_web_ui` solo montaba `/assets` + el fallback SPA; cualquier archivo copiado por Vite al dist root caía al catch-all y se respondía como shell. Un 200 con bytes de HTML no grita: el parser de fuentes del navegador lo descarta en silencio y `font-display: swap` lo tapa encima.
+
+**Solución:** `web_index` resuelve el path contra el dist root y sirve el archivo real con `FileResponse` + media type explícito (`.svg`/`.woff2` — el registry MIME de Windows no conoce woff2); `index.html` queda excluido (es la única vía que inyecta el token); traversal bloqueado por `resolve()` + `relative_to`. Test de regresión: content-type + bytes exactos + que `/index.html` llegue CON el token.
+
+**Regla de Oro:** *Cuando agregues un asset al dist root de una SPA con catch-all, el test que lo cubre asserta content-type y bytes — un 200 con el shell pasa disfrazado de éxito. Y `index.html` nunca se sirve como archivo: es la única vía que inyecta el token.*
+
 ### Regla de Oro 17.7 [Tests / entorno]: un test de resolución de herramientas tiene que stagear la herramienta que dice probar
 
 **Error (Sesión 33, CI rojo en ambos OS al primer push):** `test_only_the_version_line_is_reported` afirmaba que las 4 herramientas reportan su primera línea, pero daba por hecho que Deno resuelve. Localmente resuelve (el dev tiene `node_modules/.bin/deno`); el job `backend` de CI **no corre `pnpm install`** (eso es del job `frontend`), así que ahí `find_deno()` devuelve `None` y la aserción recibía `None != "1.2.3"`. Verde local, rojo en CI, en los dos OS.

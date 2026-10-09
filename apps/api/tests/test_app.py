@@ -295,6 +295,44 @@ def test_web_ui_is_served_when_a_build_exists(tmp_path) -> None:
         assert client.get("/assets/app.js").status_code == 200
 
 
+def test_web_ui_serves_root_static_files_with_their_true_content_type(tmp_path) -> None:
+    """Vite copies `public/` to the dist root: favicon and the self-hosted
+    web fonts. Before this behaviour existed the SPA fallback answered a font
+    request with the HTML shell, the browser could not parse it, and the
+    dashboard silently rendered in the system stack instead of Archivo."""
+    dist = tmp_path / "dist"
+    (dist / "fonts").mkdir(parents=True)
+    (dist / "favicon.svg").write_text("<svg xmlns=''></svg>", encoding="utf-8")
+    (dist / "fonts" / "archivo-latin.woff2").write_bytes(b"wOF2 fake")
+    (dist / "index.html").write_text(
+        "<!doctype html><head><title>LMD</title></head>", encoding="utf-8"
+    )
+    settings = Settings(data_dir=tmp_path / "data", web_dist=dist)
+
+    with serving(create_app(settings)) as client:
+        favicon = client.get("/favicon.svg")
+        assert favicon.status_code == 200
+        assert favicon.text == "<svg xmlns=''></svg>"
+        assert favicon.headers["content-type"].startswith("image/svg+xml")
+
+        font = client.get("/fonts/archivo-latin.woff2")
+        assert font.status_code == 200
+        assert font.content == b"wOF2 fake"
+        assert font.headers["content-type"].startswith("font/woff2")
+
+        # The shell is the one file that must NEVER be served raw: it is the
+        # only path that injects the token, so it always goes through it.
+        direct = client.get("/index.html")
+        assert direct.status_code == 200
+        assert 'name="lmd-token"' in direct.text
+
+        # A traversal attempt must not read anything outside the dist root.
+        escape = client.get("/fonts/..%2F..%2Fpyproject.toml")
+        assert escape.status_code == 200
+        assert "<title>LMD</title>" in escape.text
+        assert "[project]" not in escape.text
+
+
 def test_startup_creates_the_database_file(client: TestClient, tmp_path) -> None:
     assert (tmp_path / "data" / "app.db").exists()
 

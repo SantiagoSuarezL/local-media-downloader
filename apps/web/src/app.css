@@ -1,1 +1,201 @@
 @import 'tailwindcss';
+
+/* Self-hosted so the dashboard needs no internet to look right (PRODUCT.md:
+   local-first is a hard constraint, so no CDN, no googleapis link).
+   Subsets come from the Google Fonts latin / latin-ext ranges. `tnum` is
+   present in this face, which is what keeps moving numbers from dancing. */
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 400 700;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url('/fonts/archivo-latin.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC,
+    U+2122, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 400 700;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url('/fonts/archivo-latin-ext.woff2') format('woff2');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
+}
+
+@theme {
+  --font-sans: 'Archivo', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', Menlo, Consolas, monospace;
+
+  /* Ground, panels, one step of elevation. Panels are divided by hairline
+     seams, never by shadow. */
+  --color-ground: #0b0d10;
+  --color-panel: #12151a;
+  --color-raised: #1a1e25;
+  --color-well: #0e1116;
+
+  --color-seam: #21262e;
+  --color-seam-strong: #2e343f;
+
+  --color-ink: #e8edf4;
+  --color-ink-2: #99a3b3;
+  --color-ink-3: #6a7382;
+  --color-ink-4: #454c57;
+
+  /* Sky is the only accent, and it means exactly one thing: this is running
+     right now. Selection and progress share it because they also mean now. */
+  --color-accent: #38bdf8;
+  --color-accent-strong: #0ea5e9;
+  --color-accent-dim: #075985;
+  --color-accent-ink: #bae6fd;
+  --color-accent-wash: #0b2b3d;
+
+  /* State lamps. Colour never carries state alone: every use of these is
+     paired with a lamp dot or a label. */
+  --color-ok: #34d399;
+  --color-warn: #fbbf24;
+  --color-crit: #f87171;
+  --color-idle: #6a7382;
+}
+
+@layer base {
+  /* The dashboard is dark by commitment, so tell the UA: native scrollbars,
+     form controls and the caret stop rendering light on a near-black ground.
+     This replaces the inert `class="dark"` that did nothing. */
+  :root {
+    color-scheme: dark;
+  }
+
+  html {
+    /* The scroll-reactive ground layer is the only thing that reacts; keep the
+       scroll itself from doing layout work of its own. */
+    scrollbar-gutter: stable;
+  }
+
+  body {
+    @apply bg-ground font-sans text-ink antialiased;
+  }
+
+  /* Fase 4: one rule instead of adding cursor-pointer in ten places. Anything
+     that takes a click gets the pointer, including the row-level triggers the
+     lint rules would otherwise force into nested buttons. */
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']),
+  a[href],
+  select:not(:disabled),
+  label[for],
+  summary {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [role='button'][aria-disabled='true'],
+  input:disabled,
+  select:disabled {
+    cursor: not-allowed;
+  }
+
+  /* Keyboard focus must be visible on every interactive element: the whole
+     tool is usable without a mouse. */
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-accent;
+  }
+
+  ::selection {
+    @apply bg-accent-dim text-accent-ink;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--color-ground);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-seam-strong);
+    border: 2px solid var(--color-ground);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-ink-4);
+  }
+
+  /* `scrollbar-color` / `scrollbar-width` are deliberately NOT declared here.
+     The build's CSS minifier rejects a standard scrollbar property declared
+     next to a ::-webkit pseudo element in the same block (it reports "Invalid
+     token in pseudo element") and silently drops it, so the standard Firefox
+     path would be a claim the bundle does not keep. The ::-webkit rules above
+     cover Chromium, Edge and Thorium, which is every browser this tool has
+     actually been run in. */
+}
+
+@layer components {
+  /* Every number that moves is tabular, so the row does not jitter as bytes
+     and ETA count. Archivo carries the `tnum` feature for this. */
+  .fig {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum' 1;
+  }
+
+  /* Monospaced figures for identifiers and timestamps, where digit alignment
+     matters more than width. */
+  .fig-mono {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* The ground: a fixed glow plus a fixed seam grid. Both are plain composited
+     layers with no repaint of their own. The texture layer is the single
+     element the scroll listener transforms. */
+  .lmd-ground {
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    pointer-events: none;
+    background:
+      radial-gradient(
+        120% 70% at 50% -10%,
+        color-mix(in oklab, var(--color-accent) 9%, transparent) 0%,
+        transparent 60%
+      ),
+      radial-gradient(
+        90% 50% at 50% 110%,
+        color-mix(in oklab, var(--color-accent-dim) 22%, transparent) 0%,
+        transparent 65%
+      ),
+      var(--color-ground);
+  }
+
+  /* Panel seams. A repeating gradient is one paint, tileable, and needs no
+     image request; the alternative (an SVG turbulence filter) is far more
+     expensive to rasterise for a texture nobody consciously reads.
+     The -120px overscan is not decoration: the scroll handler moves this layer
+     down by up to 108px (900px of scroll * 0.12), so 60px would leave a bare
+     strip at the top of the viewport on long pages. */
+  .lmd-texture {
+    position: fixed;
+    inset: -120px 0 -120px 0;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0.5;
+    background-image:
+      repeating-linear-gradient(to right, var(--color-seam) 0 1px, transparent 1px 48px),
+      repeating-linear-gradient(to bottom, var(--color-seam) 0 1px, transparent 1px 48px);
+    mask-image: radial-gradient(140% 90% at 50% 0%, black 0%, transparent 78%);
+    will-change: transform;
+  }
+
+  /* Reduced motion: the parallax is decoration, so it does not ship at all
+     rather than animating more slowly. */
+  @media (prefers-reduced-motion: reduce) {
+    .lmd-texture {
+      will-change: auto;
+    }
+  }
+}

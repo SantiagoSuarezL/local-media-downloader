@@ -17,7 +17,7 @@
 - **Deno 2.9.6 vía pnpm** (devDependency raíz + `allowBuilds: { deno: true }` en `pnpm-workspace.yaml`, porque su binario se descarga en postinstall y pnpm 11 bloquea build scripts por defecto; `onlyBuiltDependencies` ya no existe en pnpm 11 → Ref. 10.3). Se le pasa a yt-dlp con `--js-runtimes deno:<path>`.
 - Orden de búsqueda en `adapters/tool_paths.py`: override explícito → `bin/` del bundle frozen (PyInstaller onedir, Fase 16; vacío en desarrollo) → `node_modules/.bin` del workspace → venv del uv → PATH. La MISMA función resuelve en runtime y en Diagnostics (`detect_tools` compone argv con `yt_dlp_argv()`/`find_deno()`/`ffmpeg_argv()`/`ffprobe_argv()`); un detector que resuelva por su cuenta reporta una máquina que no existe (Ref: 17.6). `web_dist` es frozen-aware (`config.default_web_dist`, `LMD_WEB_DIST` overridea).
 - FFmpeg/FFprobe: `LMD_FFMPEG` > venv del uv > PATH.
-- Frontend: Svelte 5, Vite, TypeScript, Tailwind CSS, pnpm
+- Frontend: Svelte 5, Vite, TypeScript, Tailwind CSS v4 (`@theme` en `apps/web/src/app.css`), pnpm, **Archivo** (web font self-hosted en `apps/web/public/fonts/`, subsets latin/latin-ext, SIL OFL 1.1 — sin CDN: el dashboard se ve igual offline)
 - Extension: TypeScript, Manifest V3, Vite
 - Monorepo: uv + `.venv` + `uv.lock` (Python), pnpm (TS, único package manager JS)
 
@@ -45,7 +45,7 @@ Monolito modular local-first con scheduler durable de jobs (asyncio, sin Celery/
 
 **Packaging:** Windows primero — PyInstaller onedir → Inno Setup. Binarios third-party bundled y pineados (FFmpeg LGPL preferible); THIRD_PARTY_NOTICES.md; licencia del proyecto Apache-2.0.
 
-**Suite de tests:** 675 (562 pytest en `apps/api` — 561 fast (incluye 3 live opt-in con `LMD_LIVE_NETWORK=1` que skip por default) + 1 smoke `-m smoke` con servidor real — + 88 Vitest en `apps/web` + 25 Vitest en `apps/extension`)
+**Suite de tests:** 705 (563 pytest en `apps/api` — 562 fast (incluye 3 live opt-in con `LMD_LIVE_NETWORK=1` que skip por default) + 1 smoke `-m smoke` con servidor real — + 116 Vitest en `apps/web` + 26 Vitest en `apps/extension`)
 
 ---
 
@@ -71,3 +71,5 @@ Monolito modular local-first con scheduler durable de jobs (asyncio, sin Celery/
 13. Ciclo de vida de datos (Fase 12): (a) el output final vive en `output_root` (config de operador, `LMD_OUTPUT_ROOT`, nunca seteable por API) bajo una regla cerrada (`flat`/`by_extractor`/`by_date`); el job dir solo guarda temporales que retention puede borrar; (b) duplicado = misma URL normalizada + mismo intent + job no-terminal (columna `dedupe_key` indexada; COMPLETED/FAILED/CANCELLED no cuentan); (c) retention mide edad por `updated_at` y el mantenimiento nunca lo toca — redactar/borrar no es una transición (Ref: 12.1); (d) retry manual resetea `attempt_count` y errores, y vale desde FAILED/CANCELLED/RECOVERY_REQUIRED.
 14. El progreso en vivo se parsea de la salida de yt-dlp con `--progress-template` + `RECORD_PREFIX` (`lmd` + `\x1f`); el template NO lleva el prefijo de tipo `download:` porque la herramienta lo consume, y su contrato se testea renderizando con `parse_options`/`evaluate_outtmpl` de yt-dlp, nunca armando la línea a mano. (Ref: 17.5)
 15. `yt-dlp-ejs` es dependencia declarada y se detecte por import (`version`, no `__version__`): sin él (o sin Deno) se pierden formatos de los sitios con JS challenge, y el bundle lo recoge con `collect_all` en `lmd.spec`. `THIRD_PARTY_NOTICES.md` declara licencias desde el `License-Expression` del metadata instalado (yt-dlp es Unlicense, no GPL).
+16. El sistema de diseño es normativo desde `DESIGN.md` (raíz, + `.impeccable/design.json`): tokens `@theme` en `apps/web/src/app.css` (ground/panel/raised/well/seam/ink/accent + lámparas ok/warn/crit), `.fig` (tabular-nums) para todo número en movimiento, íconos propios en `src/lib/icons/` (currentColor, sin librería), marca bolt recolor sky (`Mark.svelte` + favicon). `PRODUCT.md` (raíz) es la verdad de producto que lo alimenta. La extensión usa los mismos tokens: popup con hex literales de `DESIGN.md` (sin Tailwind), íconos MV3 en `public/icons/` con test de contrato contra el manifest.
+17. Los assets del web UI que viven en el dist root (`favicon.svg`, `fonts/*.woff2`) se sirven como archivos reales con content-type explícito desde `web_index` — nunca el shell. `index.html` es la única excepción: siempre pasa por la vía que inyecta el token. (Ref: 17.8)

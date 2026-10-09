@@ -36,6 +36,7 @@ function liveEntry(state: string): Record<string, import('../src/lib/live').Live
       totalBytes: null,
       speed: null,
       eta: null,
+      updatedAt: Date.now(),
     },
   }
 }

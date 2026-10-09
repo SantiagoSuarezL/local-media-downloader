@@ -16,6 +16,7 @@ The installer bundles the following third-party components with pinned versions.
 * **curl-cffi 0.16.3** – MIT License. Provides TLS impersonation to yt-dlp (some sites refuse vanilla Python TLS); ships its own bundled libcurl (curl is MIT/X-derived).
 * **FFmpeg / FFprobe** – LGPL v2.1 / GPL v2 (prefer an LGPL-compatible build for release). Staged in the bundle `bin/` directory; resolved via `LMD_FFMPEG`/`LMD_FFPROBE` override first, then `bin/`, then PATH as a last resort.
 * **Svelte 5**, **Vite**, **Tailwind CSS**, **TypeScript**, **pnpm** – licenses as listed in respective package.json.
+* **Archivo (web font)** – SIL Open Font License 1.1. Self-hosted as WOFF2 subsets (`latin`, `latin-ext`) in `apps/web/public/fonts/` rather than loaded from a CDN, so the dashboard needs no internet connection to render correctly. The font files are unmodified subsets.
 
 ## Source Links
 * https://github.com/yt-dlp/yt-dlp
@@ -26,6 +27,7 @@ The installer bundles the following third-party components with pinned versions.
 * https://deno.land/
 * https://github.com/lexiforest/curl_cffi
 * https://ffmpeg.org/
+* https://fonts.google.com/specimen/Archivo (Omnibus-Type, SIL OFL 1.1)
 
 ## License Texts
 Full license texts are available under the open-source repositories above. No code is modified except for bundling. FFmpeg is used dynamically via subprocess; it is not statically linked. Patents and trademarks are not transferred by this notice.

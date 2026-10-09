@@ -2,6 +2,8 @@
   import type { BatchItemResult } from '@lmd/contracts'
   import { api } from '../lib/api'
   import { PRESETS, findPreset } from '../lib/presets'
+  import Button from '../lib/components/Button.svelte'
+  import Icon from '../lib/icons/Icon.svelte'
 
   interface Props {
     onopen?: (id: string) => void
@@ -61,96 +63,100 @@
 
 <section class="flex flex-col gap-6">
   <div class="flex flex-col gap-2">
-    <h1 class="text-lg font-semibold text-neutral-100">Batch queue</h1>
-    <p class="text-sm text-neutral-500">
+    <h1 class="text-lg font-semibold text-ink">Batch queue</h1>
+    <p class="text-sm text-ink-3">
       One URL per line. Each becomes an independent job; pasting the same link twice creates one
       job, not two. One bad URL never fails the rest.
     </p>
   </div>
 
   <textarea
-    class="min-h-40 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2 font-mono text-sm text-neutral-100 outline-none focus:border-sky-600"
+    class="min-h-40 rounded-lg border border-seam bg-panel px-3 py-2 font-mono text-sm text-ink outline-none placeholder:text-ink-4 focus:border-accent-dim"
     placeholder="https://… (one URL per line)"
     bind:value={text}></textarea>
 
   <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
     <select
       aria-label="Output preset"
-      class="rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-neutral-100"
+      class="rounded-lg border border-seam bg-panel px-3 py-2 text-sm text-ink"
       bind:value={selectedPreset}
     >
       {#each PRESETS as option (option.id)}
         <option value={option.id}>{option.label}</option>
       {/each}
     </select>
-    <label class="flex items-center gap-2 text-sm text-neutral-400">
+    <label class="flex items-center gap-2 text-sm text-ink-3">
       Priority
       <input
         type="number"
-        class="w-20 rounded-lg border border-neutral-800 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
+        class="fig w-20 rounded-lg border border-seam bg-panel px-2 py-1.5 text-sm text-ink"
         bind:value={priority}
       />
     </label>
-    <button
-      type="button"
-      class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50 sm:ml-auto"
-      disabled={submitting}
+    <Button
+      variant="primary"
+      icon="batch"
+      busy={submitting}
+      class="sm:ml-auto"
       onclick={() => void submit()}
     >
-      {submitting ? 'Queueing…' : `Queue ${urls.length} URL${urls.length === 1 ? '' : 's'}`}
-    </button>
+      Queue {urls.length} URL{urls.length === 1 ? '' : 's'}
+    </Button>
   </div>
 
   {#if selectedPreset === 'sticker'}
-    <p class="text-xs text-neutral-400">
+    <p class="text-xs text-ink-3">
       Creates a 512×512 animated WebP (up to 3 seconds and 500 KB). Import into WhatsApp is not
       guaranteed.
     </p>
   {/if}
 
   {#if error}
-    <p class="rounded-lg border border-red-900 bg-red-950/40 px-3 py-2 text-sm text-red-300">
+    <p
+      class="flex items-start gap-2 rounded-lg border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit"
+    >
+      <Icon name="alert" class="mt-px h-4 w-4 shrink-0" />
       {error}
     </p>
   {/if}
 
   {#if summary}
-    <p class="text-sm text-neutral-400">
+    <p class="fig text-sm text-ink-2">
       {summary.created} created · {summary.duplicates} duplicates · {summary.errors} errors
     </p>
-    <div class="overflow-x-auto rounded-xl border border-neutral-800">
+    <div class="overflow-x-auto rounded-xl border border-seam">
       <table class="w-full text-left text-xs">
-        <thead class="bg-neutral-900/60 text-neutral-500">
+        <thead class="bg-panel text-ink-3">
           <tr>
-            <th class="px-3 py-2">#</th>
-            <th class="px-3 py-2">Result</th>
-            <th class="px-3 py-2">Detail</th>
+            <th class="px-3 py-2 font-medium">#</th>
+            <th class="px-3 py-2 font-medium">Result</th>
+            <th class="px-3 py-2 font-medium">Detail</th>
           </tr>
         </thead>
         <tbody>
           {#each results as result (result.index)}
-            <tr class="border-t border-neutral-800/80">
-              <td class="px-3 py-2 text-neutral-500">{result.index + 1}</td>
+            <tr class="border-t border-seam/70">
+              <td class="fig px-3 py-2 text-ink-4">{result.index + 1}</td>
               <td class="px-3 py-2">
                 {#if result.status === 'created'}
-                  <span class="text-emerald-400">queued</span>
+                  <span class="text-ok">queued</span>
                 {:else if result.status === 'duplicate'}
-                  <span class="text-amber-400">already queued</span>
+                  <span class="text-warn">already queued</span>
                 {:else}
-                  <span class="text-red-400">error</span>
+                  <span class="text-crit">error</span>
                 {/if}
               </td>
               <td class="px-3 py-2">
                 {#if result.job}
                   <button
                     type="button"
-                    class="max-w-80 truncate text-left text-neutral-200 hover:text-sky-300"
+                    class="max-w-80 truncate rounded text-left text-ink-2 transition-colors hover:text-accent"
                     onclick={() => result.job && onopen?.(result.job.id)}
                   >
                     {result.job.title ?? result.job.id}
                   </button>
                 {:else if result.error}
-                  <span class="text-red-400">
+                  <span class="text-crit">
                     {result.error.code}{result.error.message ? `: ${result.error.message}` : ''}
                   </span>
                 {/if}

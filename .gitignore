@@ -262,6 +262,15 @@ data/
 graphify-out/
 .agent/local/
 
+# Impeccable: estado de sesión de la herramienta de diseño (rolls, captures,
+# builds efímeros). Los artefactos que documentan el proyecto SÍ se versionan:
+# .impeccable/design.json, apps/web/.impeccable/surfaces/, PRODUCT.md y DESIGN.md.
+**/.impeccable/questions/
+**/.impeccable/review/
+**/.impeccable/mocks/
+**/.impeccable/build/
+**/.impeccable/config.local.json
+
 # Tooling caches
 .vitest/
 .eslintcache

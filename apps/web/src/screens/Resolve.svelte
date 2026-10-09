@@ -3,6 +3,8 @@
   import { api } from '../lib/api'
   import { formatBytes, formatDuration } from '../lib/format'
   import { PRESETS } from '../lib/presets'
+  import Button from '../lib/components/Button.svelte'
+  import Icon from '../lib/icons/Icon.svelte'
 
   interface Props {
     onstarted?: (jobId: string) => void
@@ -69,8 +71,8 @@
 
 <section class="flex flex-col gap-6">
   <div class="flex flex-col gap-2">
-    <h1 class="text-lg font-semibold text-neutral-100">Resolve a URL</h1>
-    <p class="text-sm text-neutral-500">
+    <h1 class="text-lg font-semibold text-ink">Resolve a URL</h1>
+    <p class="text-sm text-ink-3">
       The local service extracts metadata and plans the download. Nothing leaves this machine.
     </p>
   </div>
@@ -78,48 +80,51 @@
   <div class="flex flex-col gap-3 sm:flex-row">
     <input
       type="url"
-      class="flex-1 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-sky-600"
+      class="flex-1 rounded-lg border border-seam bg-panel px-3 py-2 text-sm text-ink outline-none placeholder:text-ink-4 focus:border-accent-dim"
       placeholder="https://..."
       bind:value={url}
       onkeydown={(event) => event.key === 'Enter' && void resolve()}
     />
-    <button
-      type="button"
-      class="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
-      disabled={resolving}
-      onclick={() => void resolve()}
-    >
-      {resolving ? 'Resolving…' : 'Resolve'}
-    </button>
+    <Button variant="primary" icon="resolve" busy={resolving} onclick={() => void resolve()}>
+      Resolve
+    </Button>
   </div>
 
   {#if error}
-    <p class="rounded-lg border border-red-900 bg-red-950/40 px-3 py-2 text-sm text-red-300">
+    <p
+      class="flex items-start gap-2 rounded-lg border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit"
+    >
+      <Icon name="alert" class="mt-px h-4 w-4 shrink-0" />
       {error}
     </p>
   {/if}
 
   {#if media}
-    <article class="flex flex-col gap-4 rounded-xl border border-neutral-800 bg-neutral-900/60 p-4">
+    <article class="flex flex-col gap-4 rounded-xl border border-seam bg-panel p-4">
       <div class="flex gap-4">
         {#if media.thumbnail_url}
           <img
             src={media.thumbnail_url}
             alt=""
+            width="160"
+            height="96"
             referrerpolicy="no-referrer"
             class="h-24 w-40 shrink-0 rounded-lg object-cover"
           />
         {/if}
         <div class="min-w-0">
-          <h2 class="truncate text-base font-semibold text-neutral-100">
+          <h2 class="truncate text-base font-semibold text-ink">
             {media.source.title ?? 'Untitled'}
           </h2>
-          <p class="mt-1 text-xs text-neutral-500">
+          <p class="mt-1 text-xs text-ink-3">
             {media.source.uploader ?? media.source.extractor ?? 'Unknown source'}
           </p>
-          <p class="mt-1 text-xs text-neutral-500">{formatDuration(media.duration_seconds)}</p>
+          <p class="fig mt-1 text-xs text-ink-3">{formatDuration(media.duration_seconds)}</p>
           {#if media.is_live}
-            <p class="mt-1 text-xs text-amber-400">Live stream</p>
+            <p class="mt-1 flex items-center gap-1.5 text-xs text-warn">
+              <span class="h-1.5 w-1.5 rounded-full bg-warn" aria-hidden="true"></span>
+              Live stream
+            </p>
           {/if}
         </div>
       </div>
@@ -127,34 +132,37 @@
       {#if media.warnings.length > 0}
         <ul class="flex flex-col gap-1">
           {#each media.warnings as warning (warning)}
-            <li class="text-xs text-amber-400">{warning}</li>
+            <li class="flex items-start gap-1.5 text-xs text-warn">
+              <Icon name="alert" class="mt-px h-3 w-3 shrink-0" />
+              {warning}
+            </li>
           {/each}
         </ul>
       {/if}
 
       <div class="overflow-x-auto">
-        <table class="w-full text-left text-xs text-neutral-400">
-          <thead class="text-neutral-500">
+        <table class="w-full text-left text-xs text-ink-3">
+          <thead class="text-ink-3">
             <tr>
-              <th class="py-1 pr-3">Format</th>
-              <th class="py-1 pr-3">Kind</th>
-              <th class="py-1 pr-3">Resolution</th>
-              <th class="py-1 pr-3">Codec</th>
-              <th class="py-1 pr-3">Size</th>
+              <th class="py-1 pr-3 font-medium">Format</th>
+              <th class="py-1 pr-3 font-medium">Kind</th>
+              <th class="py-1 pr-3 font-medium">Resolution</th>
+              <th class="py-1 pr-3 font-medium">Codec</th>
+              <th class="py-1 pr-3 font-medium">Size</th>
             </tr>
           </thead>
           <tbody>
             {#each formats.slice(0, 12) as format (format.id)}
-              <tr class="border-t border-neutral-800">
-                <td class="py-1 pr-3 text-neutral-200">{format.id}</td>
+              <tr class="border-t border-seam">
+                <td class="py-1 pr-3 text-ink-2">{format.id}</td>
                 <td class="py-1 pr-3">{format.kind}</td>
-                <td class="py-1 pr-3">
+                <td class="fig py-1 pr-3">
                   {format.height ? `${format.width ?? '?'}x${format.height}` : '—'}
                 </td>
                 <td class="py-1 pr-3">
                   {format.video_codec ?? '—'}{format.audio_codec ? ` / ${format.audio_codec}` : ''}
                 </td>
-                <td class="py-1 pr-3">
+                <td class="fig py-1 pr-3">
                   {format.filesize != null
                     ? formatBytes(format.filesize)
                     : format.filesize_approx
@@ -167,27 +175,28 @@
         </table>
       </div>
 
-      <div class="flex flex-col gap-3 border-t border-neutral-800 pt-4 sm:flex-row sm:items-center">
+      <div class="flex flex-col gap-3 border-t border-seam pt-4 sm:flex-row sm:items-center">
         <select
           aria-label="Output preset"
-          class="rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-neutral-100"
+          class="rounded-lg border border-seam bg-panel px-3 py-2 text-sm text-ink"
           bind:value={selectedPreset}
         >
           {#each presets as option (option.id)}
             <option value={option.id}>{option.label}</option>
           {/each}
         </select>
-        <button
-          type="button"
-          class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50 sm:ml-auto"
-          disabled={starting}
+        <Button
+          variant="primary"
+          icon="start"
+          busy={starting}
+          class="sm:ml-auto"
           onclick={() => void start()}
         >
-          {starting ? 'Starting…' : `Start: ${preset.label}`}
-        </button>
+          Start: {preset.label}
+        </Button>
       </div>
       {#if selectedPreset === 'sticker'}
-        <p class="text-xs text-neutral-400">
+        <p class="text-xs text-ink-3">
           Creates a 512×512 animated WebP (up to 3 seconds and 500 KB). Import into WhatsApp is not
           guaranteed.
         </p>

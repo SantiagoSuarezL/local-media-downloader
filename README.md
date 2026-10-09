@@ -182,4 +182,6 @@ data/               Runtime data (git-ignored): app.db, jobs, cache, logs
 - `docs/TECHNICAL_SPEC.md` — technical specification
 - `docs/IMPLEMENTATION_PLAN.md` — phased implementation plan
 - `docs/TESTING.md` — quality gates playbook
+- `PRODUCT.md` — product truth and principles (drives the design tooling)
+- `DESIGN.md` — visual system (normative tokens, named rules, components)
 - `THIRD_PARTY_NOTICES.md` — bundled third-party components

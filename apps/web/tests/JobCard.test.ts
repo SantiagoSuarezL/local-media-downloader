@@ -96,6 +96,7 @@ describe('JobCard', () => {
           totalBytes: null,
           speed: null,
           eta: null,
+          updatedAt: Date.now(),
         },
       },
     })

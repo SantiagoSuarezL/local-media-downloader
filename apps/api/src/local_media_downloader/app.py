@@ -18,7 +18,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -84,6 +84,15 @@ TOKEN_COOKIE = "lmd_token"
 # tool detection spawns subprocesses. A short cache keeps that from being a
 # process-storm lever without making the indicator feel stale.
 _HEALTH_CACHE_SECONDS = 5.0
+
+# Content types for the static files the dashboard itself loads from the dist
+# root (favicon, self-hosted web font subsets). Spelled out because the OS MIME
+# registry does not know `.woff2` on every platform, and a font served as
+# `application/octet-stream` is at the browser's mercy.
+_ROOT_STATIC_MEDIA_TYPES = {
+    ".svg": "image/svg+xml",
+    ".woff2": "font/woff2",
+}
 
 
 class JobRequest(BaseModel):
@@ -263,8 +272,17 @@ def _mount_web_ui(
     if assets.is_dir():
         app.mount("/assets", StaticFiles(directory=assets), name="web-assets")
 
+    # Static files that live at the dist root rather than under /assets: the
+    # favicon and the self-hosted web font subsets. Vite copies everything in
+    # `public/` to the dist root, and without this the SPA fallback answers
+    # `/favicon.svg` and `/fonts/*.woff2` with the HTML shell -- a font request
+    # served as `text/html` fails to parse, and the dashboard silently falls
+    # back to the system stack, which reads as "the font just isn't working".
+    # Real files are served with their true content type; misses still fall back
+    # to the SPA shell so deep links keep working.
     shell_template = (web_dist / "index.html").read_text(encoding="utf-8")
     token_meta = '<meta name="lmd-token" content="{token}" />'
+    static_root = web_dist.resolve()
 
     @app.get("/{path:path}", include_in_schema=False)
     def web_index(request: Request, path: str) -> Response:
@@ -272,12 +290,32 @@ def _mount_web_ui(
 
         `/api/*` is deliberately excluded: an unknown API route must stay a
         structured 404, never the HTML shell, or clients would parse HTML as JSON.
+
+        A path that resolves to a real file inside the dist root is served as
+        that file instead of the shell. `index.html` is the one exception: the
+        shell must always go through token injection, so it is never served raw.
         """
         if path == "api" or path.startswith("api/"):
             return JSONResponse(
                 status_code=404,
                 content=_error_payload(_ERROR_NOT_FOUND, f"unknown endpoint: /{path}"),
             )
+
+        candidate: Path | None
+        try:
+            candidate = (web_dist / path).resolve()
+            candidate.relative_to(static_root)
+        except (OSError, ValueError):
+            # Path escapes the dist directory (traversal, absolute path, null
+            # byte, or a name Windows cannot represent): no real file, so the
+            # SPA fallback answers. Nothing outside web_dist is ever served.
+            candidate = None
+        if candidate is not None and candidate.is_file() and candidate.name != "index.html":
+            return FileResponse(
+                candidate,
+                media_type=_ROOT_STATIC_MEDIA_TYPES.get(candidate.suffix.lower()),
+            )
+
         token = _redact_free(request.app.state.token)
         html = shell_template.replace("<head>", f"<head>{token_meta.format(token=token)}", 1)
         response = Response(html, media_type="text/html")

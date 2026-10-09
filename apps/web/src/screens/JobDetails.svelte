@@ -2,7 +2,13 @@
   import type { JobDto } from '@lmd/contracts'
   import { api } from '../lib/api'
   import { formatBytes, formatEta, formatTimestamp } from '../lib/format'
-  import { live, mergeLive, startLiveUpdates } from '../lib/live'
+  import { clock, isStale, live, mergeLive, startLiveUpdates } from '../lib/live'
+  import { railSummary, railVisible } from '../lib/jobState'
+  import Button from '../lib/components/Button.svelte'
+  import Icon from '../lib/icons/Icon.svelte'
+  import Spinner from '../lib/components/Spinner.svelte'
+  import StageRail from '../lib/components/StageRail.svelte'
+  import StateBadge from '../lib/components/StateBadge.svelte'
 
   interface Props {
     jobId: string | null
@@ -89,119 +95,155 @@
   const retryable = $derived(
     merged !== null && ['FAILED', 'CANCELLED', 'RECOVERY_REQUIRED'].includes(merged.state),
   )
+
+  const percent = $derived(Math.round((lj?.percentage ?? (merged?.progress ?? 0) * 100) || 0))
+  const stale = $derived(lj ? isStale(lj, $clock) : false)
+  const summary = $derived(merged ? railSummary(merged.state, merged.current_stage) : '')
+
+  /**
+   * Bytes, speed and ETA exist only while the progress stream is running; the
+   * durable record never carries them. Rendering the three rows with permanent
+   * em dashes for a finished job read as broken lookups, so they exist only
+   * when there is real data to put in them.
+   */
+  const hasTelemetry = $derived(
+    lj != null && (lj.downloadedBytes != null || lj.speed != null || lj.eta != null),
+  )
 </script>
 
 <section class="flex flex-col gap-6">
-  <h1 class="text-lg font-semibold text-neutral-100">Job details</h1>
+  <h1 class="text-lg font-semibold text-ink">Job details</h1>
 
   {#if !jobId}
-    <p
-      class="rounded-xl border border-dashed border-neutral-800 p-8 text-center text-sm text-neutral-500"
-    >
+    <p class="rounded-xl border border-dashed border-seam p-8 text-center text-sm text-ink-3">
       Pick a job from the dashboard to see its progress, errors and output.
     </p>
   {:else if error}
-    <p class="rounded-lg border border-red-900 bg-red-950/40 px-3 py-2 text-sm text-red-300">
+    <p
+      class="flex items-start gap-2 rounded-lg border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit"
+    >
+      <Icon name="alert" class="mt-px h-4 w-4 shrink-0" />
       {error}
     </p>
   {:else if merged}
-    <article class="flex flex-col gap-4 rounded-xl border border-neutral-800 bg-neutral-900/60 p-4">
+    <article class="flex flex-col gap-4 rounded-xl border border-seam bg-panel p-4">
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
-          <h2 class="truncate text-base font-semibold text-neutral-100">
+          <h2 class="truncate text-base font-semibold text-ink">
             {merged.title ?? merged.id}
           </h2>
-          <p class="mt-1 truncate text-xs text-neutral-500">{merged.source_url ?? merged.id}</p>
+          <p class="mt-1 truncate text-xs text-ink-3">{merged.source_url ?? merged.id}</p>
         </div>
         <div class="flex shrink-0 items-center gap-2">
           {#if retryable}
-            <button
-              type="button"
-              class="rounded-lg border border-sky-800 px-3 py-1.5 text-sm text-sky-300 hover:bg-sky-950/40 disabled:opacity-50"
-              disabled={busy}
-              onclick={() => void retry()}
-            >
-              Retry job
-            </button>
+            <Button icon="retry" {busy} onclick={() => void retry()}>Retry job</Button>
           {/if}
           {#if cancellable}
-            <button
-              type="button"
-              class="rounded-lg border border-red-900 px-3 py-1.5 text-sm text-red-300 hover:bg-red-950/40 disabled:opacity-50"
-              disabled={busy}
-              onclick={() => void cancel()}
-            >
+            <Button variant="danger" icon="cancel" {busy} onclick={() => void cancel()}>
               Cancel job
-            </button>
+            </Button>
           {/if}
         </div>
       </div>
 
-      <div class="flex items-center gap-2 text-xs text-neutral-400">
+      <!-- The rail leads here: one job in detail is exactly where "which stage,
+           and is it still moving" is the question being asked. Hidden for
+           finished jobs, where it would only repeat "Finished" in shape. -->
+      <div class="flex flex-col gap-2">
+        {#if railVisible(merged.state, merged.current_stage)}
+          <StageRail state={merged.state} stage={merged.current_stage} {stale} />
+        {/if}
+        <div class="flex items-baseline justify-between gap-3">
+          <span class="text-xs text-ink-3">
+            {stale ? `${summary} · no progress` : summary}
+          </span>
+          <span class="fig text-xs text-ink-2">{percent}%</span>
+        </div>
+        <div class="h-1 w-full overflow-hidden rounded-full bg-well">
+          <div
+            class="h-full rounded-full transition-[width] duration-300 {stale
+              ? 'bg-warn'
+              : 'bg-accent'}"
+            style="width: {Math.min(percent, 100)}%"
+          ></div>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2 text-xs text-ink-3">
         <label for="priority">Priority</label>
         <input
           id="priority"
           type="number"
-          class="w-20 rounded-lg border border-neutral-800 bg-neutral-900 px-2 py-1 text-sm text-neutral-100"
+          class="fig w-20 rounded-lg border border-seam bg-panel px-2 py-1 text-sm text-ink"
           bind:value={priority}
         />
-        <button
-          type="button"
-          class="rounded border border-neutral-700 px-2 py-1 text-xs text-neutral-300 hover:border-sky-600 hover:text-sky-300 disabled:opacity-50"
+        <Button
+          variant="ghost"
           disabled={busy || !job || priority === job.priority}
           onclick={() => void savePriority()}
         >
           Save
-        </button>
-        <span class="text-neutral-600">Higher preempts lower in the queue.</span>
+        </Button>
+        <span class="text-ink-4">Higher preempts lower in the queue.</span>
       </div>
 
       <dl class="grid grid-cols-2 gap-3 text-xs sm:grid-cols-3">
         <div>
-          <dt class="text-neutral-500">State</dt>
-          <dd class="mt-0.5 text-neutral-200">{merged.state}</dd>
+          <dt class="text-ink-3">State</dt>
+          <dd class="mt-0.5"><StateBadge state={merged.state} /></dd>
         </div>
         <div>
-          <dt class="text-neutral-500">Stage</dt>
-          <dd class="mt-0.5 text-neutral-200">{merged.current_stage ?? '—'}</dd>
+          <dt class="text-ink-3">Stage</dt>
+          <dd class="mt-0.5 text-ink-2">{merged.current_stage ?? '—'}</dd>
         </div>
         <div>
-          <dt class="text-neutral-500">Attempts</dt>
-          <dd class="mt-0.5 text-neutral-200">{merged.attempt_count}</dd>
+          <dt class="text-ink-3">Attempts</dt>
+          <dd class="fig mt-0.5 text-ink-2">{merged.attempt_count}</dd>
         </div>
-        <div>
-          <dt class="text-neutral-500">Downloaded</dt>
-          <dd class="mt-0.5 text-neutral-200">
-            {formatBytes(lj?.downloadedBytes ?? null)}
-            {lj?.totalBytes ? ` / ${formatBytes(lj.totalBytes)}` : ''}
+        {#if hasTelemetry}
+          <div>
+            <dt class="text-ink-3">Downloaded</dt>
+            <dd class="fig mt-0.5 text-ink-2">
+              {formatBytes(lj?.downloadedBytes ?? null)}
+              {lj?.totalBytes ? ` / ${formatBytes(lj.totalBytes)}` : ''}
+            </dd>
+          </div>
+          <div>
+            <dt class="text-ink-3">Speed</dt>
+            <dd class="fig mt-0.5 text-ink-2">{formatBytes(lj?.speed ?? null)}/s</dd>
+          </div>
+          <div>
+            <dt class="text-ink-3">ETA</dt>
+            <dd class="fig mt-0.5 text-ink-2">{formatEta(lj?.eta ?? null)}</dd>
+          </div>
+        {/if}
+        <div class="col-span-2 sm:col-span-3">
+          <dt class="text-ink-3">Output</dt>
+          <dd class="mt-0.5 flex items-start gap-1.5 break-all text-ink-2">
+            {#if merged.output_path}
+              <Icon name="folder" class="mt-px h-3.5 w-3.5 shrink-0 text-ink-4" />
+              {merged.output_path}
+            {:else}
+              —
+            {/if}
           </dd>
-        </div>
-        <div>
-          <dt class="text-neutral-500">Speed</dt>
-          <dd class="mt-0.5 text-neutral-200">{formatBytes(lj?.speed ?? null)}/s</dd>
-        </div>
-        <div>
-          <dt class="text-neutral-500">ETA</dt>
-          <dd class="mt-0.5 text-neutral-200">{formatEta(lj?.eta ?? null)}</dd>
-        </div>
-        <div>
-          <dt class="text-neutral-500">Output</dt>
-          <dd class="mt-0.5 break-all text-neutral-200">{merged.output_path ?? '—'}</dd>
         </div>
       </dl>
 
       {#if merged.error_code}
-        <div class="rounded-lg border border-red-900 bg-red-950/30 px-3 py-2">
-          <p class="text-sm font-medium text-red-300">{merged.error_code}</p>
-          <p class="mt-1 text-xs text-red-200/80">{merged.error_message}</p>
+        <div class="rounded-lg border border-crit/40 bg-crit/10 px-3 py-2">
+          <p class="text-sm font-medium text-crit">{merged.error_code}</p>
+          <p class="mt-1 text-xs text-crit/80">{merged.error_message}</p>
         </div>
       {/if}
 
-      <p class="text-xs text-neutral-600">
+      <p class="fig text-xs text-ink-4">
         Job id {merged.id} · created {formatTimestamp(merged.created_at)}
       </p>
     </article>
   {:else}
-    <p class="text-sm text-neutral-500">Loading…</p>
+    <div class="flex items-center gap-2 text-sm text-ink-3" role="status" aria-busy="true">
+      <Spinner /> Loading job…
+    </div>
   {/if}
 </section>
