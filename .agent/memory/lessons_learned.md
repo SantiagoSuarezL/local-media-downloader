@@ -30,6 +30,16 @@
 
 ## Reglas activas
 
+### Regla de Oro 17.13 [Packaging / frozen]: el exe frozen honra `exe -m yt_dlp` por runpy — el bootloader ignora `-m` y sin dispatch bootea un servidor anidado
+
+**Error (Sesión 37, reporte del usuario con la app instalada v0.1.0):** popup en Offline persistente + check lento (`signal is aborted without reason`) con el backend corriendo, y — peor, sin reportar — descargas/resolves rotos en frozen: todo spawn de yt-dlp booteaba un servidor anidado en el mismo puerto.
+
+**Root Cause:** el backend spawnea yt-dlp como `sys.executable -m yt_dlp` (adapter + probes comparten `yt_dlp_argv()`), pero el bootloader de PyInstaller no procesa `-m`: el exe frozen arrancaba `main()` ignorando los args. Cada /health quemaba 2 s (probe `--version`) + 10 s (`extractor.version`) en servidores anidados, y cada uno fugaba su worker huérfano con double-bind (17.9). Segunda capa: `yt_dlp.__main__` solo lo importa runpy (invisible al análisis) y los ~900 extractores cargan por importlib — el hook upstream de yt-dlp no los colecta, así que ni el dispatch solo bastaba. Tercera: runpy con `alter_sys` solo reescribe `argv[0]`; hay que trimmiar el prefijo `-m yt_dlp` a mano o yt-dlp lo recibe como opción inválida.
+
+**Solución:** `_run_bundled_module()` en `lmd_entry.py` (solo en frozen): trim de argv + `runpy.run_module("yt_dlp", run_name="__main__", alter_sys=True)`; `lmd.spec` suma `yt_dlp.__main__` + `collect_submodules("yt_dlp.extractor")`. La prueba de que los extractores viajan no es el build verde sino `exe -m yt_dlp --list-extractors` contando igual que en dev (1752/1752). Verificado: cold /health frozen 2226 ms (antes: timeouts garantizados), warm 4 ms.
+
+**Regla de Oro:** *Si el runtime spawnea `sys.executable -m <mod>`, el entrypoint frozen despacha ese `-m` por runpy con trim de argv — si no, cada spawn bootea la app anidada en el mismo puerto. Y lo que el análisis estático no ve (runpy-only `__main__`, plugins por importlib) se declara a mano en el spec y se verifica contando en el binario real, no mirando el log del build.*
+
 ### Regla de Oro 17.12 [CI / artifacts]: `upload-artifact` anida por ancestro común — el artifact de un release se stagea PLANO
 
 **Error (Sesión 36, segundo run rojo del tag v0.1.0, run 38078927399):** el release se creó como draft pero la subida de assets murió con `read release-assets\installer: Incorrect function` — `gh` recibió un DIRECTORIO como asset.

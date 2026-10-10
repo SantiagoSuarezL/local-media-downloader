@@ -7,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from conftest import serving
+from local_media_downloader import __version__
 from local_media_downloader.app import create_app
 from local_media_downloader.config import Settings
 
@@ -28,7 +29,7 @@ def test_health_reports_versions_and_statuses(client: TestClient) -> None:
     body = response.json()
 
     assert body["api"] == "ok"
-    assert body["version"] == "0.1.0"
+    assert body["version"] == __version__
     assert body["status"] == "ok"
 
     assert body["database"]["status"] == "ok"

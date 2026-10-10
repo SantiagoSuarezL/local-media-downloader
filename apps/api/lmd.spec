@@ -25,7 +25,7 @@ resolves them at runtime via ``tool_paths._bundle_bin_candidates`` and
 
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_all
+from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 REPO_ROOT = Path(SPECPATH).resolve().parent.parent  # <repo>/apps/api/ -> <repo>
 WEB_DIST = REPO_ROOT / "apps" / "web" / "dist"
@@ -62,6 +62,15 @@ hiddenimports = [
     "yt_dlp.extractor",
     "yt_dlp.extractor.common",
     "yt_dlp.postprocessor",
+    # Entry point for `exe -m yt_dlp ...` (lmd_entry.py runpy dispatch):
+    # __main__ is only ever imported by runpy, never statically.
+    "yt_dlp.__main__",
+    # The ~900 site extractors load through passthrough_module/importlib
+    # (yt_dlp.extractor.__init__ proxies to a generated extractors module),
+    # so static analysis sees none of them. Without these, the frozen CLI
+    # boots but matches no site. (Postprocessors import statically from
+    # their __init__ and need no such treatment.)
+    *collect_submodules("yt_dlp.extractor"),
     # JS challenge solvers. The module itself is imported dynamically by
     # diagnostics; its .js payload comes from yt-dlp's own PyInstaller hook
     # (registered through the pyinstaller40 entry point) plus collect_all here.
