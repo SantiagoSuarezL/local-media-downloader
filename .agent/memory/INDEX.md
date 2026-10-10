@@ -6,7 +6,7 @@
 
 **Proyecto:** local-media-downloader
 **Fase actual:** 17 (cerrada en Sesión 32). Post-MVP: Sesión 33 (progreso/Diagnostics/`yt-dlp-ejs`), **Sesión 34 (rediseño visual completo + branding de app y extensión — `DESIGN.md` es normativo)**
-**Próxima fase:** ninguna — MVP completo salvo 1 reserva de hardware en `observations.md` (smoke del bundle en otra máquina/CI). La verificación de la extensión en browser quedó *parcialmente* resuelta (Thorium/Chromium OK, falta Firefox y el resto de la UI)
+**Próxima fase:** ninguna — MVP completo. La reserva del smoke del bundle quedó **cerrada** (Sesión 36: workflow Release verde en CI, Regla 17.10). La verificación de la extensión en browser quedó *parcialmente* resuelta (Thorium/Chromium OK, falta Firefox y el resto de la UI)
 
 ## Tabla de archivos
 

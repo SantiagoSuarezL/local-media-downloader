@@ -24,27 +24,12 @@ Formato de cada entrada: fecha, target/módulo, observación, hipótesis, estado
   *Estado:* abierto — pendiente decisión del usuario (ofrecido en Sesión 34).
   *Acción:* ninguna todavía.
 
-- **2026-10-08 — Smoke del bundle frozen pendiente (reserva del cierre Fase 16).**
-  Target `apps/api/lmd.spec` + `lmd_entry.py` + `packaging/stage_bundle.ps1`.
-  El spec portable compila (PyInstaller 6.22.3 onedir OK, 3 builds); el primer
-  boot frozen falló por imports relativos (`__main__.py` top-level → shim
-  `lmd_entry.py` creado); los 2 intentos de smoke se cayeron por falta de
-  recursos de la laptop (uno dejó 5 `ffmpeg` zombie de los tool probes →
-  matados; `dist/`+`build/` ~600 MB eliminados, todo gitignored).
-  *Estado (Sesión 36):* **causa raíz encontrada y fixeada** — el smoke del
-  workflow Release en CI (run 38026191613) falló con `frozen bundle never
-  served its banner` porque Granian spawnea el worker con multiprocessing
-  aunque `workers=1` y el shim frozen no llamaba `freeze_support()` (Regla
-  17.10). Fix en `lmd_entry.py` + smoke con fail-fast y captura de logs.
-  **Verificado localmente de punta a punta** (build → boot → banner → shell
-  con token → kill limpio); queda ver el run del workflow en CI re-disparado
-  para cerrar la reserva del todo (la máquina de CI tiene los recursos que a
-  esta laptop le faltaban).
-  Nota Sesión 33: el bundle incluye `yt_dlp_ejs` (`collect_all` +
-  hiddenimport en `lmd.spec`) y `deno.exe` se stageaba, así que el smoke
-  debería poder verificar un YouTube con JS challenge de punta a punta.
-  *Acción:* al siguiente run verde del workflow Release en CI, mover esta
-  entrada a `observations_archive.md` apuntando a la Regla 17.10.
+- **2026-10-08 — Smoke del bundle frozen (reserva Fase 16): CERRADA 2026-10-10.**
+  El workflow Release la destapó y la cerró: sin `freeze_support()` en el shim
+  frozen, el worker de Granian (multiprocessing spawn) re-arrancaba la app en vez
+  del worker → `frozen bundle never served its banner`. Fix + smoke con logs;
+  CI run 38067647416 verde de punta a punta. Ver `observations_archive.md` y la
+  Regla de Oro 17.10.
 
 - **2026-10-08 — Primer `/health` tarda ~12.5 s por los tool probes en frío.**
   Target `app.py`/`diagnostics.py` (`detect_tools` en el path de health).
