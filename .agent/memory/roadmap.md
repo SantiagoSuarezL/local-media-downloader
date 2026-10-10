@@ -29,6 +29,8 @@
 
 - **Post-MVP Sesión 34 — Rediseño visual completo (sin fase nueva):** sistema de tokens `@theme` + Archivo self-hosted + marca/íconos propios (web y extensión) + fondo con parallax GPU + cursores/focus globales + primitivas de carga (Spinner/Skeleton/Button busy/StateBadge) + stage rail con detección de congelamiento (staleness por etapa) + fixes reales de freshness (SSE en History, purga del store live, telemetría solo con datos). Serving de assets del dist root (Regla 17.8). Docs: `PRODUCT.md` + `DESIGN.md` + `.impeccable/design.json`. 705 tests. Ver `session_log.md` Sesión 34.
 
+- **Post-MVP Sesiones 35-36 — Estabilidad + distribución (sin fase nueva):** fix del fantasma post-completed (revalidación durable en JobDetails + frames scheduler sin zombies, 121 Vitest), launcher de doble clic (`Start-LMD.bat`/`.ps1`), workflow de Release en tags `v*` (bundle frozen con smoke → Inno → zip extensión → GitHub Release; Reglas 17.10-17.12) y **v0.1.0 publicado** (instalador ~145 MB + zip extensión). La reserva de smoke de Fase 16 quedó CERRADA (run verde en CI). Ver `session_log.md` Sesiones 35-36.
+
 ---
 
 ## Pendientes Críticos Detectados
