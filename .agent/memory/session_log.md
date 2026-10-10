@@ -16,7 +16,7 @@
 
 - **Reporte del usuario (app instalada v0.1.1):** job COMPLETED al 100% con su .mp3 en disco pero mostrando `SOURCE_UNAVAILABLE` en Job details. Causa: error rancio — el job falló una vez (transitorio) y el reintento automático completó (Attempts: 1), pero `transition()` con `COALESCE` solo podía SETEAR errores, nunca limpiarlos; `reset_for_retry` (manual) sí limpiaba, la vía automática no.
 - **Fix en `jobs.transition()`:** `CASE WHEN target = COMPLETED THEN NULL` para error_code/message — invariante centralizada; solo COMPLETED limpia (FAILED/CANCELLED conservan, el retry manual los lee). +2 tests en `test_jobs.py` (COMPLETED limpia tras RETRY_WAIT con error; CANCELLED conserva). Sin cambio frontend (la caja se muestra iff `error_code`, ahora nulo). **Regla 17.14.**
-- **Bump 0.1.2** (11 archivos + `uv.lock`; `test_app.py` robusto a `__version__`, `test_package.py` pin intencional). Gates: pytest 27 incl. nuevos, ruff/pyright/prettier verdes. Tag v0.1.2 → release en curso al cerrar esta entrada.
+- **Bump 0.1.2** (11 archivos + `uv.lock`; `test_app.py` robusto a `__version__`, `test_package.py` pin intencional). Gates: pytest 27 incl. nuevos, ruff/pyright/prettier verdes. **Resultado: v0.1.2 publicado** — run verde, instalador + zip extensión.
 
 ---
 
