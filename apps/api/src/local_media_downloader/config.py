@@ -27,6 +27,26 @@ _DEFAULT_LOG_LEVEL = "INFO"
 # development the runtime data lives under ./data (which is git-ignored).
 _DEFAULT_DATA_DIR = Path("data")
 
+_APP_DIR_NAME = "Local Media Downloader"
+
+
+def default_data_dir() -> Path:
+    """Default runtime data directory, install-aware (Phase 16).
+
+    A frozen bundle usually lives under Program Files, where an unprivileged
+    user cannot write — so it defaults to the per-user application data
+    directory (the same folder the Inno installer creates and cleans up).
+    Development runs keep the historic ``./data`` default.
+    """
+    if getattr(sys, "frozen", False):
+        if sys.platform == "win32":
+            base = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
+            return Path(base) / _APP_DIR_NAME
+        base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+        return Path(base) / "local-media-downloader"
+    return _DEFAULT_DATA_DIR
+
+
 # Built Svelte assets served by FastAPI in production. Derived from this file so
 # the packaged app (Phase 16) resolves it from the bundle, and overridable with
 # LMD_WEB_DIST. When the directory is absent the API still runs headless (tests,
@@ -64,7 +84,7 @@ class Settings:
     host: str = _DEFAULT_HOST
     port: int = _DEFAULT_PORT
     log_level: str = _DEFAULT_LOG_LEVEL
-    data_dir: Path = field(default_factory=lambda: _DEFAULT_DATA_DIR)
+    data_dir: Path = field(default_factory=default_data_dir)
     # Built web UI served from the same loopback origin (Phase 8).
     web_dist: Path = field(default_factory=default_web_dist)
     # Maximum attempts at automatic recovery are Phase 7; keep the surface small.
@@ -109,7 +129,7 @@ class Settings:
             host=os.environ.get("LMD_HOST", _DEFAULT_HOST),
             port=int(os.environ.get("LMD_PORT", str(_DEFAULT_PORT))),
             log_level=os.environ.get("LMD_LOG_LEVEL", _DEFAULT_LOG_LEVEL).upper(),
-            data_dir=Path(os.environ.get("LMD_DATA_DIR", str(_DEFAULT_DATA_DIR))),
+            data_dir=Path(os.environ.get("LMD_DATA_DIR", str(default_data_dir()))),
             web_dist=Path(os.environ.get("LMD_WEB_DIST", str(default_web_dist()))),
             max_health_tool_timeout_seconds=float(os.environ.get("LMD_HEALTH_TOOL_TIMEOUT", "2.0")),
             scheduler_max_active=int(os.environ.get("LMD_SCHED_MAX_ACTIVE", "3")),

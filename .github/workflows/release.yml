@@ -1,0 +1,151 @@
+name: Release
+
+# Builds the Windows installer + extension zip for non-technical users (no
+# clone, no toolchain: install, load the extension, double-click the icon).
+# Pushing a `v*` tag publishes a GitHub Release; manual runs only upload
+# artifacts so the pipeline can be tested without cutting a release.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write # publishing the GitHub Release on tags
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: installer + extension (windows)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          $v = $env:GITHUB_REF_NAME
+          if ($env:GITHUB_REF_TYPE -ne 'tag' -or [string]::IsNullOrEmpty($v)) { $v = '0.1.0' }
+          $v = $v -replace '^v', ''
+          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install Python
+        run: uv python install
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build dashboard + extension
+        run: pnpm build
+
+      - name: Install FFmpeg (pinned 9.x static, same class as CI)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n9.0-latest-win64-gpl-9.0.zip" -OutFile "$env:RUNNER_TEMP\ffmpeg.zip"
+          Expand-Archive -Path "$env:RUNNER_TEMP\ffmpeg.zip" -DestinationPath "$env:RUNNER_TEMP\ffmpeg"
+          $bin = Get-ChildItem -Path "$env:RUNNER_TEMP\ffmpeg" -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1 -ExpandProperty DirectoryName
+          "LMD_FFMPEG_EXE=$bin\ffmpeg.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "LMD_FFPROBE_EXE=$bin\ffprobe.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Sync Python dependencies
+        run: uv sync --locked
+
+      - name: Build frozen bundle (PyInstaller onedir)
+        working-directory: apps/api
+        run: uv run --package local-media-downloader-api --extra build pyinstaller lmd.spec --noconfirm --distpath ../../dist --workpath ../../build/lmd
+
+      - name: Stage third-party binaries + notices
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File packaging/stage_bundle.ps1
+
+      - name: Smoke the frozen bundle (real boot + dashboard shell)
+        shell: pwsh
+        env:
+          LMD_PORT: '8790'
+          LMD_DATA_DIR: ${{ runner.temp }}\lmd-smoke-data
+        run: |
+          $exe = Join-Path (Get-Location) 'dist\LocalMediaDownloader\Local Media Downloader.exe'
+          if (-not (Test-Path -LiteralPath $exe)) { throw "bundle exe missing: $exe" }
+          $proc = Start-Process -FilePath $exe -WindowStyle Hidden -PassThru
+          try {
+            $up = $false
+            for ($i = 0; $i -lt 60; $i++) {
+              try {
+                $r = Invoke-RestMethod -Uri 'http://127.0.0.1:8790/api/v1' -TimeoutSec 2
+                if ($r.service -eq 'local-media-downloader') { $up = $true; break }
+              } catch { }
+              Start-Sleep -Seconds 2
+            }
+            if (-not $up) { throw 'frozen bundle never served its banner' }
+            $shell = (New-Object System.Net.WebClient).DownloadString('http://127.0.0.1:8790/')
+            if ($shell -notmatch 'lmd-token') { throw 'frozen bundle did not serve the dashboard shell' }
+          } finally {
+            Get-CimInstance Win32_Process |
+              Where-Object { $_.CommandLine -match 'Local Media Downloader\.exe' } |
+              ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+            try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch { }
+          }
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Compile installer
+        shell: pwsh
+        run: |
+          $iscc = Get-ChildItem -Path ${env:ProgramFiles(x86)}, $env:ProgramFiles -Recurse -Filter ISCC.exe -ErrorAction SilentlyContinue |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $iscc) { throw 'ISCC.exe not found after installing Inno Setup' }
+          & $iscc "/DMyAppVersion=${{ steps.version.outputs.version }}" packaging/installer.iss
+
+      - name: Zip the extension
+        shell: pwsh
+        run: |
+          $zip = "dist/LocalMediaDownloader-extension-${{ steps.version.outputs.version }}.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path apps/extension/dist/* -DestinationPath $zip
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: |
+            dist/installer/*.exe
+            dist/LocalMediaDownloader-extension-*.zip
+          if-no-files-found: error
+
+  publish:
+    name: publish GitHub Release
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-release
+          path: release-assets
+
+      - name: Create GitHub Release
+        shell: pwsh
+        run: |
+          gh release create "${{ github.ref_name }}" release-assets/* `
+            --title "Local Media Downloader ${{ github.ref_name }}" `
+            --generate-notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

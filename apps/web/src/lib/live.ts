@@ -70,9 +70,29 @@ export function startLiveUpdates(): void {
   }, 1000)
 }
 
+function hasLiveData(payload: Record<string, unknown>): boolean {
+  return (
+    typeof payload.state === 'string' ||
+    typeof payload.stage === 'string' ||
+    typeof payload.percentage === 'number' ||
+    typeof payload.downloaded_bytes === 'number' ||
+    typeof payload.total_bytes === 'number' ||
+    typeof payload.speed_bytes_per_second === 'number' ||
+    typeof payload.eta_seconds === 'number'
+  )
+}
+
 function ingest(payload: Record<string, unknown>): void {
   const jobId = payload.job_id
   if (typeof jobId !== 'string') {
+    return
+  }
+  // Scheduler lifecycle frames (`job_started`/`job_finished`) carry only
+  // `{event, job_id}` with no progress data. Ingesting them would create
+  // entries with `state: null` (never terminal, never purged, never stale)
+  // or bump `updatedAt` on a finished job and defeat the terminal purge —
+  // the ghost-download mechanism. They are informational, not liveness.
+  if (!hasLiveData(payload)) {
     return
   }
   live.update((current) => ({

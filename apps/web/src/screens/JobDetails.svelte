@@ -3,7 +3,7 @@
   import { api } from '../lib/api'
   import { formatBytes, formatEta, formatTimestamp } from '../lib/format'
   import { clock, isStale, live, mergeLive, startLiveUpdates } from '../lib/live'
-  import { railSummary, railVisible } from '../lib/jobState'
+  import { isTerminalState, railSummary, railVisible } from '../lib/jobState'
   import Button from '../lib/components/Button.svelte'
   import Icon from '../lib/icons/Icon.svelte'
   import Spinner from '../lib/components/Spinner.svelte'
@@ -43,7 +43,13 @@
       job = await api.cancelJob(job.id)
       oncancelled?.()
     } catch (err) {
-      error = err instanceof Error ? err.message : String(err)
+      const message = err instanceof Error ? err.message : String(err)
+      // A cancel that loses the race with completion lands here as a 409
+      // while the screen still shows the pre-completion snapshot (the dead
+      // "Cancel job" of the ghost). Re-read the durable record first so the
+      // screen lands on the truth, then report why the cancel did nothing.
+      await load(job.id)
+      error = message
     } finally {
       busy = false
     }
@@ -79,11 +85,36 @@
     }
   }
 
+  // Revalidation guards for the ghost-download snap-back: `load()` reads the
+  // durable record once, but the stream keeps moving. After the 5s terminal
+  // purge the live entry vanishes and `merged` would fall back to the stale
+  // pre-completion snapshot (ghost "downloading" + dead Cancel button).
+  let revalidatedFor = $state<string | null>(null)
+  let sawLiveFor = $state<string | null>(null)
+
   $effect(() => {
     if (jobId) {
+      revalidatedFor = null
+      sawLiveFor = null
       void load(jobId)
     } else {
       job = null
+    }
+  })
+
+  $effect(() => {
+    if (!job || job.id !== jobId) {
+      return
+    }
+    const entry = $live[job.id]
+    if (entry && sawLiveFor !== job.id) {
+      sawLiveFor = job.id
+    }
+    const terminal = entry != null && isTerminalState(entry.state ?? '')
+    const purgedAfterLive = entry == null && sawLiveFor === job.id && !isTerminalState(job.state)
+    if ((terminal || purgedAfterLive) && revalidatedFor !== job.id) {
+      revalidatedFor = job.id
+      void load(job.id)
     }
   })
 

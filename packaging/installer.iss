@@ -1,7 +1,11 @@
 #define MyAppName "Local Media Downloader"
+; CI passes /DMyAppVersion=<tag> so the installer tracks the release;
+; building by hand keeps the fallback below.
+#ifndef MyAppVersion
 #define MyAppVersion "0.1.0"
+#endif
 #define MyAppPublisher "Local Media Downloader"
-#define MyAppURL "https://github.com/example/local-media-downloader"
+#define MyAppURL "https://github.com/SantiagoSuarezL/local-media-downloader"
 #define MyAppExeName "Local Media Downloader.exe"
 
 [Setup]
@@ -36,7 +40,8 @@ Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Tasks]
-Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+; Checked by default: non-technical users expect the double-click icon.
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent

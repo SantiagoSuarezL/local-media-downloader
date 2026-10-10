@@ -129,6 +129,37 @@ describe('startLiveUpdates', () => {
     expect(get(live)).toEqual({})
   })
 
+  it('ignores scheduler lifecycle frames without progress data', () => {
+    startLiveUpdates()
+    const source = FakeEventSource.instances[0]
+    source.emit('scheduler', { event: 'job_started', job_id: 'a' })
+    source.emit('scheduler', { event: 'job_finished', job_id: 'a' })
+    // A scheduler-only frame must never create a `state: null` zombie entry:
+    // it is informational, not liveness.
+    expect(get(live)).toEqual({})
+  })
+
+  it('does not let scheduler frames bump a finished entry', () => {
+    startLiveUpdates()
+    const source = FakeEventSource.instances[0]
+    const now = vi.spyOn(Date, 'now')
+    now.mockReturnValueOnce(1000).mockReturnValueOnce(2000).mockReturnValueOnce(3000)
+    try {
+      source.emit('progress', { job_id: 'a', state: 'DOWNLOADING', percentage: 50 })
+      source.emit('state', { job_id: 'a', state: 'COMPLETED', percentage: 100 })
+      expect(get(live)['a']?.updatedAt).toBe(2000)
+      source.emit('scheduler', { event: 'job_finished', job_id: 'a' })
+      const after = get(live)['a']
+      expect(after?.state).toBe('COMPLETED')
+      expect(after?.percentage).toBe(100)
+      // The terminal purge relies on `updatedAt` going stale; a scheduler
+      // frame must not refresh it and keep the entry (ghost) alive.
+      expect(after?.updatedAt).toBe(2000)
+    } finally {
+      now.mockRestore()
+    }
+  })
+
   it('ignores malformed JSON instead of breaking the stream', () => {
     startLiveUpdates()
     const source = FakeEventSource.instances[0]

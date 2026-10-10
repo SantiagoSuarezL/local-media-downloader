@@ -52,6 +52,35 @@ uv run --package local-media-downloader-api python -m local_media_downloader
 Then open **http://127.0.0.1:8765/**. You should see the dashboard with a
 green service status. `Ctrl+C` stops the service in about a second.
 
+### Daily use (double-click, no commands)
+
+Double-click **`Start-LMD.bat`**: it skips starting a second copy if the
+service already answers, builds the dashboard first if missing
+(`pnpm build`), starts the single service process (API + dashboard) and opens
+the browser when ready. Keep that window open while you use it; `Ctrl+C`
+stops it. Both launcher files are versioned, so anyone who clones the repo
+gets them — but cloning still requires the [Requirements](#requirements)
+toolchain (uv, Node + pnpm, FFmpeg) plus the one-time setup below. For people
+who don't program, the real path is a prebuilt installer with everything
+inside (see `packaging/`), not a clone.
+
+### Install from a release (no code, no toolchain)
+
+Every `v*` tag publishes ready-to-use files on the
+[Releases page](https://github.com/SantiagoSuarezL/local-media-downloader/releases):
+
+1. Run the installer (`LocalMediaDownloader-*-win-x64.exe`, keep the desktop
+   icon checked) and launch the app once — first boot registers its data
+   folder; the desktop icon is your double-click from then on.
+2. Download the extension zip, unzip it, and load the folder as an unpacked
+   extension (`chrome://extensions` → developer mode → *Load unpacked*).
+3. The popup shows **Connected** while the app runs. One click on any video
+   page sends its URL to the dashboard.
+
+No Python, Node, FFmpeg or terminal needed — the bundle carries Deno,
+FFmpeg/FFprobe and the dashboard inside. (Publishing to the Chrome Web Store
+is deliberately out of scope: it requires a one-time developer fee.)
+
 ### Downloading a video
 
 1. **Resolve** — paste a URL (or use the extension, below) and resolve it to

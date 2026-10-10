@@ -1,6 +1,8 @@
+import sys
+
 import pytest
 
-from local_media_downloader.config import Settings
+from local_media_downloader.config import Settings, default_data_dir
 
 
 def test_defaults_are_loopback_and_local() -> None:
@@ -28,3 +30,21 @@ def test_invalid_port_raises(monkeypatch) -> None:
     monkeypatch.setenv("LMD_PORT", "not-a-port")
     with pytest.raises(ValueError):
         Settings.from_env()
+
+
+def test_frozen_data_dir_is_per_user(monkeypatch, tmp_path) -> None:
+    """A frozen bundle under Program Files cannot write next to the exe."""
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.delenv("LMD_DATA_DIR", raising=False)
+    data_dir = default_data_dir()
+    assert data_dir.name in ("Local Media Downloader", "local-media-downloader")
+    assert str(data_dir) != "data"
+    settings = Settings.from_env()
+    assert settings.data_dir == data_dir
+    assert settings.database_path.name == "app.db"
+
+
+def test_env_data_dir_wins_over_frozen_default(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setenv("LMD_DATA_DIR", str(tmp_path / "custom"))
+    assert Settings.from_env().database_path.parent.name == "custom"
