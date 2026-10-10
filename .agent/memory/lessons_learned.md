@@ -30,6 +30,16 @@
 
 ## Reglas activas
 
+### Regla de Oro 17.12 [CI / artifacts]: `upload-artifact` anida por ancestro común — el artifact de un release se stagea PLANO
+
+**Error (Sesión 36, segundo run rojo del tag v0.1.0, run 38078927399):** el release se creó como draft pero la subida de assets murió con `read release-assets\installer: Incorrect function` — `gh` recibió un DIRECTORIO como asset.
+
+**Root Cause:** `upload-artifact@v4` con múltiples paths preserva el árbol relativo al **ancestro común** de todos los matcheados. Con `dist/installer/*.exe` + `dist/*.zip`, el LCA es `dist/` y el artifact queda con `installer/…exe` adentro de una carpeta; al descargar, el glob `release-assets/*` del publish expande a esa carpeta, no al exe. Bonus gh: crea el release como draft, sube assets, y si la subida falla **borra el draft** (rollback) — no queda release a medias que limpiar, pero el fallo es silencioso respecto del porqué.
+
+**Solución:** stagear los archivos del release en un único directorio plano (`release-out/`) y subir `release-out/*` — LCA = el directorio, archivos en la raíz del artifact. Fail-fast si el staging quedó vacío.
+
+**Regla de Oro:** *Cuando un artifact alimenta un glob del consumidor, se stagea en UN directorio plano: `upload-artifact` anida por ancestro común y el glob aguas abajo entrega carpetas disfrazadas de assets. Y `gh release create` con archivos es todo-o-nada (draft + rollback): un asset que falla no deja release parcial, solo un run roto sin explicación visible.*
+
 ### Regla de Oro 17.11 [CI / gh]: un job de Actions que usa `gh` sin checkout debe pasar `--repo` — la detección automática es `git`
 
 **Error (Sesión 36, run 38077832131 del tag v0.1.0):** el job `publish` del workflow Release falló con `failed to run git: fatal: not a git repository` a los 4 segundos — con el build ya verde y los artefactos subidos.

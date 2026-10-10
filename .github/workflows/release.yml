@@ -139,13 +139,26 @@ jobs:
           if (Test-Path $zip) { Remove-Item $zip -Force }
           Compress-Archive -Path apps/extension/dist/* -DestinationPath $zip
 
+      - name: Stage release files flat
+        shell: pwsh
+        # upload-artifact@v4 preserves the tree relative to the least common
+        # ancestor of the matched paths. Two paths under different subtrees
+        # (dist/installer/... and dist/*.zip) nest the installer inside an
+        # "installer/" folder in the artifact, and the publish job's glob then
+        # hands gh a DIRECTORY to upload ("read release-assets\installer:
+        # Incorrect function"). One flat staging dir = artifact files at root.
+        run: |
+          New-Item -ItemType Directory -Force -Path release-out | Out-Null
+          Copy-Item -Path 'dist/installer/*.exe' -Destination release-out
+          Copy-Item -Path 'dist/LocalMediaDownloader-extension-*.zip' -Destination release-out
+          if (-not (Get-ChildItem -Path release-out)) { throw 'no release files staged' }
+          Get-ChildItem -Path release-out | ForEach-Object { "$($_.Name)  $($_.Length) bytes" }
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows-release
-          path: |
-            dist/installer/*.exe
-            dist/LocalMediaDownloader-extension-*.zip
+          path: release-out/*
           if-no-files-found: error
 
   publish:
