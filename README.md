@@ -69,17 +69,33 @@ inside (see `packaging/`), not a clone.
 Every `v*` tag publishes ready-to-use files on the
 [Releases page](https://github.com/SantiagoSuarezL/local-media-downloader/releases):
 
-1. Run the installer (`LocalMediaDownloader-*-win-x64.exe`, keep the desktop
-   icon checked) and launch the app once — first boot registers its data
-   folder; the desktop icon is your double-click from then on.
-2. Download the extension zip, unzip it, and load the folder as an unpacked
-   extension (`chrome://extensions` → developer mode → *Load unpacked*).
-3. The popup shows **Connected** while the app runs. One click on any video
-   page sends its URL to the dashboard.
+1. **Backend** — download and run the installer
+   (`LocalMediaDownloader-*-win-x64.exe`). The binary is not code-signed, so
+   SmartScreen shows *Windows protected your PC*: click **More info → Run
+   anyway**. Keep the desktop icon checked.
+2. **Daily start** — double-click the *Local Media Downloader* desktop icon.
+   A console window opens: that window **is** the service (API + dashboard
+   in one process). Leave it open while you use the app — closing it stops
+   the service and the extension will say **Offline**. Open
+   <http://127.0.0.1:8765/> in your browser, or just use the extension (it
+   opens the dashboard for you).
+3. **Extension** — download the extension zip, right-click → *Extract All*,
+   then load the extracted **folder** (the one containing `manifest.json`):
+   - Chrome/Edge/Brave/Thorium: `chrome://extensions` → enable developer
+     mode → *Load unpacked* → pick that folder.
+   - Firefox: `about:debugging` → *Load temporary add-on* → any file inside
+     it. (Firefox temporary add-ons vanish on browser restart — reload the
+     folder at the start of each session.)
+4. **Use it** — pin the extension; the popup shows **Connected** while the
+   service runs. On any video page, click it → *Open in Local Media
+   Downloader*: the dashboard opens with the URL pre-filled. Finished media
+   lands in `~/Downloads/Local Media Downloader/`.
 
 No Python, Node, FFmpeg or terminal needed — the bundle carries Deno,
-FFmpeg/FFprobe and the dashboard inside. (Publishing to the Chrome Web Store
-is deliberately out of scope: it requires a one-time developer fee.)
+FFmpeg/FFprobe and the dashboard inside. The app's database and logs live in
+`%APPDATA%\Local Media Downloader`; uninstalling removes that data too.
+(Publishing to the Chrome Web Store is deliberately out of scope: it requires
+a one-time developer fee.)
 
 ### Downloading a video
 
@@ -115,7 +131,7 @@ is `activeTab` + `storage`, nothing else.
 | Path | Contents |
 |---|---|
 | `~/Downloads/Local Media Downloader/` | Final media files (override: `LMD_OUTPUT_ROOT`) |
-| `./data/` (or `LMD_DATA_DIR`) | `app.db`, job temp folders, cache, logs |
+| `./data/` (or `LMD_DATA_DIR`) | `app.db`, job temp folders, cache, logs — the installed app uses `%APPDATA%\Local Media Downloader` instead |
 | `./apps/web/dist` | Dashboard build served by the API |
 
 Retention defaults (tunable in Settings or via env): source URLs are redacted
@@ -144,9 +160,9 @@ Every value is an environment variable prefixed with `LMD_`; the important ones:
 
 | Symptom | Meaning / fix |
 |---|---|
-| Extension says **Offline** | Service not running, or a different port — set the address in the popup's service settings. The first health check after startup can take a few seconds while tools are detected. |
+| Extension says **Offline** | Service not running (is the console window open?), or a different port — set the address in the popup's service settings. The first health check after startup can take a few seconds while tools are detected. |
 | `UNSUPPORTED_SOURCE` | The site or URL is not supported by the extractor. |
-| `TOOL_OUTDATED` | The site changed and yt-dlp needs an update: `uv sync --upgrade-package yt-dlp` then restart. |
+| `TOOL_OUTDATED` | The site changed and yt-dlp needs an update: `uv sync --upgrade-package yt-dlp` then restart. Installed from a release? Download the latest installer instead — it ships a current yt-dlp. |
 | `SOURCE_UNAVAILABLE` | The video is gone, private, or the site refused this IP for that post — retry later or from another network. |
 | `AUTH_REQUIRED` / `AGE_RESTRICTED` | Sign-in-only or age-gated media; not downloadable by design. |
 | `GEO_RESTRICTED` | Not available from your location. |
