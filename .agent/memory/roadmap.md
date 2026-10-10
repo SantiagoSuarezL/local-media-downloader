@@ -31,6 +31,8 @@
 
 - **Post-MVP Sesiones 35-36 — Estabilidad + distribución (sin fase nueva):** fix del fantasma post-completed (revalidación durable en JobDetails + frames scheduler sin zombies, 121 Vitest), launcher de doble clic (`Start-LMD.bat`/`.ps1`), workflow de Release en tags `v*` (bundle frozen con smoke → Inno → zip extensión → GitHub Release; Reglas 17.10-17.12) y **v0.1.0 publicado** (instalador ~145 MB + zip extensión). La reserva de smoke de Fase 16 quedó CERRADA (run verde en CI). Ver `session_log.md` Sesiones 35-36.
 
+- **Post-MVP Sesión 37 — Frozen `-m yt_dlp` (reporte de app instalada):** el exe ignoraba `-m` y cada probe/descarga booteaba un servidor anidado (popup Offline + check lento + descargas rotas en instalado). Dispatch por runpy + extractores colectados en el spec (verificados 1752/1752 = dev), cold /health frozen 2.2 s. **v0.1.1 publicado** (Regla 17.13). Ver `session_log.md` Sesión 37.
+
 ---
 
 ## Pendientes Críticos Detectados
