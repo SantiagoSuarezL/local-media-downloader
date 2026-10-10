@@ -30,6 +30,16 @@
 
 ## Reglas activas
 
+### Regla de Oro 17.11 [CI / gh]: un job de Actions que usa `gh` sin checkout debe pasar `--repo` — la detección automática es `git`
+
+**Error (Sesión 36, run 38077832131 del tag v0.1.0):** el job `publish` del workflow Release falló con `failed to run git: fatal: not a git repository` a los 4 segundos — con el build ya verde y los artefactos subidos.
+
+**Root Cause:** `gh release create` resuelve owner/repo con la detección de remotes de git, que necesita un `.git` presente. El job `publish` deliberadamente no tiene `actions/checkout` (solo descarga artefactos), así que `gh` no tenía de dónde sacar el repo y abortó antes de crear nada.
+
+**Solución:** `--repo "${{ github.repository }}"` explícito en el comando (equivalente: env `GH_REPO`); no hace falta agregar un checkout solo para complacer a `gh`.
+
+**Regla de Oro:** *Todo paso de Actions que invoca `gh` en un job sin checkout pasa `--repo ${{ github.repository }}` (o `GH_REPO`): la detección de repo de gh es un subproceso de git, y sin `.git` el paso muere con un error que no menciona ni a gh ni al release. Y si hay que repetir un run de tag tras fixear el workflow, el tag se mueve al commit del fix — un job re-ejecuta el workflow del commit del tag, no el de main.*
+
 ### Regla de Oro 17.10 [Packaging / frozen]: un servidor que spawnea workers con multiprocessing necesita `freeze_support()` en el entrypoint — y el smoke de un exe captura su salida
 
 **Error (Sesión 36, run 38026191613 del workflow Release):** el smoke del bundle frozen en CI falló con `frozen bundle never served its banner` — el exe corría pero `/api/v1` nunca respondía, sin ningún log para diagnosticar (el paso solo esperaba 2 minutos y tiraba el throw).
