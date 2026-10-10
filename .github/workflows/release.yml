@@ -82,17 +82,35 @@ jobs:
         run: |
           $exe = Join-Path (Get-Location) 'dist\LocalMediaDownloader\Local Media Downloader.exe'
           if (-not (Test-Path -LiteralPath $exe)) { throw "bundle exe missing: $exe" }
-          $proc = Start-Process -FilePath $exe -WindowStyle Hidden -PassThru
+          $outLog = "$env:RUNNER_TEMP\lmd-smoke-stdout.log"
+          $errLog = "$env:RUNNER_TEMP\lmd-smoke-stderr.log"
+          $proc = Start-Process -FilePath $exe -WindowStyle Hidden `
+            -RedirectStandardOutput $outLog -RedirectStandardError $errLog -PassThru
+          function Show-BundleLogs {
+            foreach ($f in @($outLog, $errLog)) {
+              if (Test-Path -LiteralPath $f) {
+                "--- $f (last 40 lines) ---"
+                Get-Content -LiteralPath $f -Tail 40
+              }
+            }
+          }
           try {
             $up = $false
             for ($i = 0; $i -lt 60; $i++) {
+              # A frozen app that fails at boot exits within seconds; waiting
+              # the full window on a dead process wastes 2 minutes and logs
+              # nothing. Fail fast and show what the bundle printed.
+              if ($proc.HasExited) {
+                Show-BundleLogs
+                throw "frozen bundle exited early with code $($proc.ExitCode)"
+              }
               try {
                 $r = Invoke-RestMethod -Uri 'http://127.0.0.1:8790/api/v1' -TimeoutSec 2
                 if ($r.service -eq 'local-media-downloader') { $up = $true; break }
               } catch { }
               Start-Sleep -Seconds 2
             }
-            if (-not $up) { throw 'frozen bundle never served its banner' }
+            if (-not $up) { Show-BundleLogs; throw 'frozen bundle never served its banner' }
             $shell = (New-Object System.Net.WebClient).DownloadString('http://127.0.0.1:8790/')
             if ($shell -notmatch 'lmd-token') { throw 'frozen bundle did not serve the dashboard shell' }
           } finally {

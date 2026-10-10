@@ -43,7 +43,7 @@ Monolito modular local-first con scheduler durable de jobs (asyncio, sin Celery/
 
 **Checks (paridad con CI):** `uv run ruff check . && uv run ruff format --check .`, `uv run pyright`, `uv run pytest` (`-m "not smoke"` para la suite rápida), `pnpm lint`, `pnpm format:check`, `pnpm check`, `pnpm test`, `pnpm build`. Playbook completo + política STOP para modelos baratos: `docs/TESTING.md`.
 
-**Packaging:** Windows primero — PyInstaller onedir → Inno Setup. Binarios third-party bundled y pineados (FFmpeg LGPL preferible); THIRD_PARTY_NOTICES.md; licencia del proyecto Apache-2.0.
+**Packaging:** Windows primero — PyInstaller onedir → Inno Setup. Binarios third-party bundled y pineados (FFmpeg LGPL preferible); el entrypoint frozen (`lmd_entry.py`) llama `multiprocessing.freeze_support()` antes que nada porque Granian spawnea su worker por multiprocessing (Ref: 17.10). THIRD_PARTY_NOTICES.md; licencia del proyecto Apache-2.0.
 
 **Suite de tests:** 705 (563 pytest en `apps/api` — 562 fast (incluye 3 live opt-in con `LMD_LIVE_NETWORK=1` que skip por default) + 1 smoke `-m smoke` con servidor real — + 116 Vitest en `apps/web` + 26 Vitest en `apps/extension`)
 

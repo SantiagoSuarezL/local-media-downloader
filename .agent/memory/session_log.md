@@ -19,6 +19,7 @@
 - **`installer.iss`:** versión por `/D` con fallback 0.1.0, URLs reales del repo (estaban en `example/`), icono de escritorio marcado por defecto.
 - **README:** sección "Install from a release" (instalador + zip + extensión unpacked, sin toolchain; Web Store fuera de alcance por el fee de desarrollador).
 - **Gates:** pytest config+app 27 passed, ruff/pyright 0, prettier ok, YAML del workflow parseado. El smoke real del bundle queda en manos del primer run del workflow (reserva Fase 16: atacada, no cerrada hasta verlo verde en CI).
+- **Post-fix del primer run rojo (mismo día):** el smoke en CI falló con `frozen bundle never served its banner` → causa raíz: Granian spawnea el worker con multiprocessing aunque `workers=1` (`MPServer`, `BUILD_GIL True` en 3.12) y el exe frozen re-ejecuta `sys.executable` como hijo — sin `freeze_support()` en `lmd_entry.py` el "worker" arrancaba otro servidor. **Regla 17.10.** Fix + smoke del workflow ahora con fail-fast (`HasExited`) y captura/dump de stdout/stderr del exe. Verificado LOCAL de punta a punta: build frozen (~46 s) → banner instantáneo → shell con token → árbol exe+1 worker → kill limpio, puerto liberado, artefactos borrados (~600 MB). Re-dispatch del workflow lanzado para confirmar en CI.
 
 ---
 

@@ -30,6 +30,16 @@
 
 ## Reglas activas
 
+### Regla de Oro 17.10 [Packaging / frozen]: un servidor que spawnea workers con multiprocessing necesita `freeze_support()` en el entrypoint — y el smoke de un exe captura su salida
+
+**Error (Sesión 36, run 38026191613 del workflow Release):** el smoke del bundle frozen en CI falló con `frozen bundle never served its banner` — el exe corría pero `/api/v1` nunca respondía, sin ningún log para diagnosticar (el paso solo esperaba 2 minutos y tiraba el throw).
+
+**Root Cause:** Granian sirve con `MPServer` en builds con GIL (`BUILD_GIL True` en 3.12) y spawnea el worker con `multiprocessing` spawn **aunque `workers=1`** (el "proceso nieto" de la Sesión 35). En un exe frozen, spawn re-ejecuta `sys.executable` — o sea, la app entera — como hijo: sin `multiprocessing.freeze_support()` en el entrypoint, el "worker" arrancaba otro servidor en vez del worker y el banner jamás se servía. Es el requisito canónico de PyInstaller para cualquier app que use multiprocessing en Windows; el shim `lmd_entry.py` se creó en Fase 16 sin él porque el smoke nunca llegó a correr en aquella máquina.
+
+**Solución:** `multiprocessing.freeze_support()` como primera instrucción del bloque `if __name__ == "__main__"` en `lmd_entry.py` (antes de importar nada más). El smoke del workflow además ahora hace fail-fast si el exe muere (`HasExited`) y redirige stdout/stderr a archivos que se dumpean en cualquier fallo — un smoke ciego ante un proceso que ni siquiera vive no diagnostica nada. Verificado de punta a punta localmente: build frozen → boot → banner al instante → shell con token → árbol exe+1 worker → kill limpio.
+
+**Regla de Oro:** *Todo exe frozen cuyo runtime spawnea procesos (Granian/uvicorn-workers/anything multiprocessing) llama `freeze_support()` antes de cualquier otra cosa en su entrypoint — y todo smoke de un binario externo redirige y dumpea su stdout/stderr: la diferencia entre "never served its banner" y la línea de log que explica el porqué es todo el tiempo de debug.*
+
 ### Regla de Oro 17.9 [Dev / Windows]: matar el wrapper `uv` deja python huérfano, y dos servidores pueden escuchar el MISMO puerto por SO_REUSEADDR
 
 **Error (Sesión 34, verificación end-to-end):** tras fixear el serving de fuentes, el curl contra el servidor "nuevo" seguía recibiendo el HTML viejo — el fix parecía no funcionar pese a estar corriendo el proceso correcto.

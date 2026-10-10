@@ -31,17 +31,20 @@ Formato de cada entrada: fecha, target/módulo, observación, hipótesis, estado
   `lmd_entry.py` creado); los 2 intentos de smoke se cayeron por falta de
   recursos de la laptop (uno dejó 5 `ffmpeg` zombie de los tool probes →
   matados; `dist/`+`build/` ~600 MB eliminados, todo gitignored).
-  *Estado:* abierto — re-verificar en máquina con resto o CI:
-  `pnpm build`; `uv run --package local-media-downloader-api --extra build
-  pyinstaller lmd.spec --noconfirm --distpath ../../dist --workpath
-  ../../build/lmd` (desde `apps/api`); `packaging/stage_bundle.ps1`; boot del
-  exe con `LMD_DATA_DIR` temporal y puerto fresco (Regla 10.2) + `GET /`
-  (prueba `default_web_dist` frozen) + `/api/v1/health` (binarios de `bin/`);
-  matar el árbol al terminar.
-  Nota Sesión 33: el bundle ahora incluye `yt_dlp_ejs` (`collect_all` +
-  hiddenimport en `lmd.spec`) y `deno.exe` ya se stageaba, así que el smoke
+  *Estado (Sesión 36):* **causa raíz encontrada y fixeada** — el smoke del
+  workflow Release en CI (run 38026191613) falló con `frozen bundle never
+  served its banner` porque Granian spawnea el worker con multiprocessing
+  aunque `workers=1` y el shim frozen no llamaba `freeze_support()` (Regla
+  17.10). Fix en `lmd_entry.py` + smoke con fail-fast y captura de logs.
+  **Verificado localmente de punta a punta** (build → boot → banner → shell
+  con token → kill limpio); queda ver el run del workflow en CI re-disparado
+  para cerrar la reserva del todo (la máquina de CI tiene los recursos que a
+  esta laptop le faltaban).
+  Nota Sesión 33: el bundle incluye `yt_dlp_ejs` (`collect_all` +
+  hiddenimport en `lmd.spec`) y `deno.exe` se stageaba, así que el smoke
   debería poder verificar un YouTube con JS challenge de punta a punta.
-  *Acción:* ninguna todavía; no bloquea el cierre con reservas.
+  *Acción:* al siguiente run verde del workflow Release en CI, mover esta
+  entrada a `observations_archive.md` apuntando a la Regla 17.10.
 
 - **2026-10-08 — Primer `/health` tarda ~12.5 s por los tool probes en frío.**
   Target `app.py`/`diagnostics.py` (`detect_tools` en el path de health).
