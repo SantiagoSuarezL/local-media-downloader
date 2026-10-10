@@ -33,6 +33,8 @@
 
 - **Post-MVP Sesión 37 — Frozen `-m yt_dlp` (reporte de app instalada):** el exe ignoraba `-m` y cada probe/descarga booteaba un servidor anidado (popup Offline + check lento + descargas rotas en instalado). Dispatch por runpy + extractores colectados en el spec (verificados 1752/1752 = dev), cold /health frozen 2.2 s. **v0.1.1 publicado** (Regla 17.13). Ver `session_log.md` Sesión 37.
 
+- **Post-MVP Sesión 38 — Error rancio en COMPLETED (reporte de app instalada v0.1.1):** job al 100% mostrando `SOURCE_UNAVAILABLE` de un intento anterior (el reintento automático completó pero `transition()` nunca limpiaba errores). `CASE WHEN COMPLETED THEN NULL` centralizado + tests. **v0.1.2 en curso** (Regla 17.14). Ver `session_log.md` Sesión 38.
+
 ---
 
 ## Pendientes Críticos Detectados

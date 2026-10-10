@@ -5,7 +5,7 @@
 ## Estado del proyecto
 
 **Proyecto:** local-media-downloader
-**Fase actual:** 17 (cerrada en Sesión 32). Post-MVP: Sesiones 33-36 — progreso vivo/Diagnostics/`yt-dlp-ejs` (33), rediseño visual + `DESIGN.md` normativo (34), fix fantasma post-completed + launcher doble clic (35), pipeline de Release + **v0.1.0 publicado** (36, Reglas 17.10-17.12), fix frozen `-m yt_dlp` (probes+descargas en instalado) + **v0.1.1 publicado** (37, Regla 17.13)
+**Fase actual:** 17 (cerrada en Sesión 32). Post-MVP: Sesiones 33-36 — progreso vivo/Diagnostics/`yt-dlp-ejs` (33), rediseño visual + `DESIGN.md` normativo (34), fix fantasma post-completed + launcher doble clic (35), pipeline de Release + **v0.1.0 publicado** (36, Reglas 17.10-17.12), fix frozen `-m yt_dlp` (probes+descargas en instalado) + **v0.1.1 publicado** (37, Regla 17.13), fix error rancio en COMPLETED + **v0.1.2 en curso** (38, Regla 17.14)
 **Próxima fase:** ninguna — MVP completo. La reserva del smoke del bundle quedó **cerrada** (Sesión 36: workflow Release verde en CI, Regla 17.10). La verificación de la extensión en browser quedó *parcialmente* resuelta (Thorium/Chromium OK, falta Firefox y el resto de la UI)
 
 ## Tabla de archivos

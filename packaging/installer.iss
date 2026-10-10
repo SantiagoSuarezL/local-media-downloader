@@ -2,7 +2,7 @@
 ; CI passes /DMyAppVersion=<tag> so the installer tracks the release;
 ; building by hand keeps the fallback below.
 #ifndef MyAppVersion
-#define MyAppVersion "0.1.1"
+#define MyAppVersion "0.1.2"
 #endif
 #define MyAppPublisher "Local Media Downloader"
 #define MyAppURL "https://github.com/SantiagoSuarezL/local-media-downloader"

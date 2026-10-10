@@ -6,6 +6,14 @@
 
 ## Archivo de sesiones
 
+### Sesión 37 — 2026-10-10 — opencode/muse-spark vía OpenCode (PowerShell/Windows)
+
+- **Reporte del usuario (app instalada v0.1.0):** popup en Offline persistente + check lento (`Could not reach the local service (signal is aborted without reason)`) con el backend visiblemente corriendo. Causa raíz: `yt_dlp_argv()` es `[sys.executable, -m, yt_dlp]` y el bootloader frozen ignora `-m` → cada probe de /health (`--version`, 2 s) y cada `extractor.version` (10 s) booteaba un SERVIDOR ANIDADO en el mismo puerto en vez de yt-dlp, y las descargas/resolves en frozen estaban igual de rotas (mismo argv → cuelgue hasta timeout + orphans con double-bind, Regla 17.9).
+- **Fix en `lmd_entry.py`:** dispatch `-m yt_dlp` a `runpy.run_module` con trim del prefijo (semántica exacta de `python -m`; sin el trim yt-dlp recibe `-m` como opción inválida). **`lmd.spec`:** suma `yt_dlp.__main__` (solo importable por runpy, invisible al análisis) + `collect_submodules(yt_dlp.extractor)` (el hook upstream no los colecta y cargan por importlib; postprocessors sí son estáticos). Tests: nuevo `test_lmd_entry.py` (4, runpy stubbeado + `sys.frozen` fakeado). **Regla 17.13.**
+- **Verificado frozen local:** `--version` real, **1752/1752 extractores = dev**, cold /health 2226 ms (antes: timeouts garantizados de 2 s + 10 s), warm 4 ms, árbol exe+1 worker sin anidados, kill limpio. Deno `detected:false` solo local (sin bin/ stageado; en el release va en `bin/`).
+- **Bump 0.1.1** en 11 archivos de producto + relocks (`uv.lock` sí pinnea versiones workspace; `pnpm-lock.yaml` no, verificado). `test_app.py` ahora compara contra `__version__` (robusto); `test_package.py` mantiene el pin literal como tripwire. Gates: pytest/ruff/pyright/prettier verdes.
+- **Nota operativa:** mi limpieza del smoke mató también el backend instalado del usuario (mismo nombre de exe en el match) — puerto 8765 libre y verificado; relanza con el icono. Tras instalar v0.1.1 conviene reboot o cazar huérfanos v0.1.0 (cada health viejo fugaba servidores anidados). Tag v0.1.1 → release en curso al cerrar esta entrada.
+
 ### Sesión 36 — 2026-10-10 — opencode/muse-spark vía OpenCode (PowerShell/Windows)
 
 - **Pipeline de release** (el "paso natural" para no-técnicos): nuevo `.github/workflows/release.yml` — tag `v*` publica GitHub Release, dispatch manual solo sube artefactos. Job en windows-latest: pnpm build, FFmpeg BtbN 9.x pineado, PyInstaller onedir (receta de observations), stage_bundle, **smoke del bundle** (boot real + banner + shell con token, kill por CommandLine), Inno con versión del tag (`/DMyAppVersion`), zip de `apps/extension/dist`, publish con `gh release create --generate-notes`.

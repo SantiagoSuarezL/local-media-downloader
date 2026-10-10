@@ -30,6 +30,16 @@
 
 ## Reglas activas
 
+### Regla de Oro 17.14 [Jobs / estado]: el éxito terminal limpia el error — una fila COMPLETED nunca reporta una falla vieja
+
+**Error (Sesión 38, reporte del usuario con la app instalada v0.1.1):** un job COMPLETED al 100% con su .mp3 en disco mostraba `SOURCE_UNAVAILABLE` en Job details. El archivo estaba bien; el error era rancio.
+
+**Root Cause:** el job falló una vez (SOURCE_UNAVAILABLE transitorio) y el reintento automático completó (Attempts: 1), pero `transition()` escribía errores con `COALESCE(?, error_code)` — solo podía SETEARLOS, nunca limpiarlos. El paso a COMPLETED no lleva args de error, así que el viejo persistió, y JobDetails pinta la caja de error siempre que `error_code` no es nulo. `reset_for_retry` (manual) sí limpiaba; la vía automática no tenía equivalente.
+
+**Solución:** `CASE WHEN target = COMPLETED THEN NULL` para `error_code`/`error_message` dentro de `transition()` — invariante centralizada, ningún caller puede olvidarla. Solo COMPLETED limpia: FAILED/CANCELLED conservan su error (el retry manual lo lee). Tests: COMPLETED limpia tras RETRY_WAIT con error; CANCELLED conserva.
+
+**Regla de Oro:** *Los campos de error describen el último desenlace, no la historia (esa vive en `job_events`): el UPDATE que los escribe debe poder ponerlos en NULL en el éxito terminal, o el primer reintento exitoso deja un error permanente junto al 100%.*
+
 ### Regla de Oro 17.13 [Packaging / frozen]: el exe frozen honra `exe -m yt_dlp` por runpy — el bootloader ignora `-m` y sin dispatch bootea un servidor anidado
 
 **Error (Sesión 37, reporte del usuario con la app instalada v0.1.0):** popup en Offline persistente + check lento (`signal is aborted without reason`) con el backend corriendo, y — peor, sin reportar — descargas/resolves rotos en frozen: todo spawn de yt-dlp booteaba un servidor anidado en el mismo puerto.

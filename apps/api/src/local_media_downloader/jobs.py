@@ -240,19 +240,34 @@ def transition(
         raise KeyError(job_id)
     assert_transition(job.state, target)
 
+    # A completed job reports no failure: without this, a job that failed
+    # once and then succeeded on automatic retry keeps showing the stale
+    # error next to its 100%. The audit trail in job_events keeps the full
+    # history; the row only carries the latest outcome.
+    clear_error = target is JobState.COMPLETED
     now = _now()
     with transaction(conn):
         conn.execute(
             """
             UPDATE jobs
                SET state = ?, updated_at = ?,
-                   error_code = COALESCE(?, error_code),
-                   error_message = COALESCE(?, error_message),
+                   error_code = CASE WHEN ? THEN NULL ELSE COALESCE(?, error_code) END,
+                   error_message = CASE WHEN ? THEN NULL ELSE COALESCE(?, error_message) END,
                    current_stage = COALESCE(?, current_stage),
                    progress = COALESCE(?, progress)
              WHERE id = ?
             """,
-            (target.value, now, error_code, error_message, current_stage, progress, job_id),
+            (
+                target.value,
+                now,
+                clear_error,
+                error_code,
+                clear_error,
+                error_message,
+                current_stage,
+                progress,
+                job_id,
+            ),
         )
         payload: dict[str, object] = {"from": job.state.value, "to": target.value}
         if error_code:

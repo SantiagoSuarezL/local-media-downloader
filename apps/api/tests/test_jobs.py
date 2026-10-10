@@ -86,6 +86,60 @@ def test_error_metadata_is_recorded_on_failure(conn) -> None:
     assert payload["error_code"] == "UNSUPPORTED_SOURCE"
 
 
+def test_completed_clears_a_stale_error_from_an_earlier_attempt(conn) -> None:
+    # An auto-retried job fails once (RETRY_WAIT keeps the error so the wait
+    # explains itself), succeeds on the next attempt, and must not show the
+    # old failure next to its 100%.
+    job = create_job(conn, source_url=URL)
+    for target in (
+        JobState.RESOLVING,
+        JobState.READY,
+        JobState.QUEUED,
+        JobState.DOWNLOADING,
+    ):
+        job = transition(conn, job.id, target)
+    job = transition(
+        conn,
+        job.id,
+        JobState.RETRY_WAIT,
+        error_code="SOURCE_UNAVAILABLE",
+        error_message="transient failure",
+    )
+    assert job.error_code == "SOURCE_UNAVAILABLE"
+    for target in (
+        JobState.QUEUED,
+        JobState.DOWNLOADING,
+        JobState.PROCESSING,
+        JobState.VALIDATING,
+        JobState.COMMITTING,
+        JobState.COMPLETED,
+    ):
+        job = transition(
+            conn, job.id, target, progress=1.0 if target is JobState.COMPLETED else None
+        )
+    assert job.state is JobState.COMPLETED
+    assert job.error_code is None
+    assert job.error_message is None
+
+
+def test_cancelled_keeps_the_pending_error(conn) -> None:
+    # Only success clears the failure record: clearing must not leak into
+    # other terminal states, and a cancelled job still explains itself.
+    job = create_job(conn, source_url=URL)
+    transition(conn, job.id, JobState.RESOLVING)
+    transition(
+        conn,
+        job.id,
+        JobState.RETRY_WAIT,
+        error_code="SOURCE_UNAVAILABLE",
+        error_message="transient failure",
+    )
+    cancelled = transition(conn, job.id, JobState.CANCELLED)
+    assert cancelled.state is JobState.CANCELLED
+    assert cancelled.error_code == "SOURCE_UNAVAILABLE"
+    assert cancelled.error_message == "transient failure"
+
+
 def test_full_lifecycle_to_completed(conn) -> None:
     job = create_job(conn, source_url=URL)
     for target in (

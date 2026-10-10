@@ -12,17 +12,17 @@
 
 ## ÚLTIMA SESIÓN (detalle completo)
 
-`Sesión 37 — 2026-10-10 — opencode/muse-spark vía OpenCode (PowerShell/Windows)`
+`Sesión 38 — 2026-10-10 — opencode/muse-spark vía OpenCode (PowerShell/Windows)`
 
-- **Reporte del usuario (app instalada v0.1.0):** popup en Offline persistente + check lento (`Could not reach the local service (signal is aborted without reason)`) con el backend visiblemente corriendo. Causa raíz: `yt_dlp_argv()` es `[sys.executable, -m, yt_dlp]` y el bootloader frozen ignora `-m` → cada probe de /health (`--version`, 2 s) y cada `extractor.version` (10 s) booteaba un SERVIDOR ANIDADO en el mismo puerto en vez de yt-dlp, y las descargas/resolves en frozen estaban igual de rotas (mismo argv → cuelgue hasta timeout + orphans con double-bind, Regla 17.9).
-- **Fix en `lmd_entry.py`:** dispatch `-m yt_dlp` a `runpy.run_module` con trim del prefijo (semántica exacta de `python -m`; sin el trim yt-dlp recibe `-m` como opción inválida). **`lmd.spec`:** suma `yt_dlp.__main__` (solo importable por runpy, invisible al análisis) + `collect_submodules(yt_dlp.extractor)` (el hook upstream no los colecta y cargan por importlib; postprocessors sí son estáticos). Tests: nuevo `test_lmd_entry.py` (4, runpy stubbeado + `sys.frozen` fakeado). **Regla 17.13.**
-- **Verificado frozen local:** `--version` real, **1752/1752 extractores = dev**, cold /health 2226 ms (antes: timeouts garantizados de 2 s + 10 s), warm 4 ms, árbol exe+1 worker sin anidados, kill limpio. Deno `detected:false` solo local (sin bin/ stageado; en el release va en `bin/`).
-- **Bump 0.1.1** en 11 archivos de producto + relocks (`uv.lock` sí pinnea versiones workspace; `pnpm-lock.yaml` no, verificado). `test_app.py` ahora compara contra `__version__` (robusto); `test_package.py` mantiene el pin literal como tripwire. Gates: pytest/ruff/pyright/prettier verdes.
-- **Nota operativa:** mi limpieza del smoke mató también el backend instalado del usuario (mismo nombre de exe en el match) — puerto 8765 libre y verificado; relanza con el icono. Tras instalar v0.1.1 conviene reboot o cazar huérfanos v0.1.0 (cada health viejo fugaba servidores anidados). Tag v0.1.1 → release en curso al cerrar esta entrada.
+- **Reporte del usuario (app instalada v0.1.1):** job COMPLETED al 100% con su .mp3 en disco pero mostrando `SOURCE_UNAVAILABLE` en Job details. Causa: error rancio — el job falló una vez (transitorio) y el reintento automático completó (Attempts: 1), pero `transition()` con `COALESCE` solo podía SETEAR errores, nunca limpiarlos; `reset_for_retry` (manual) sí limpiaba, la vía automática no.
+- **Fix en `jobs.transition()`:** `CASE WHEN target = COMPLETED THEN NULL` para error_code/message — invariante centralizada; solo COMPLETED limpia (FAILED/CANCELLED conservan, el retry manual los lee). +2 tests en `test_jobs.py` (COMPLETED limpia tras RETRY_WAIT con error; CANCELLED conserva). Sin cambio frontend (la caja se muestra iff `error_code`, ahora nulo). **Regla 17.14.**
+- **Bump 0.1.2** (11 archivos + `uv.lock`; `test_app.py` robusto a `__version__`, `test_package.py` pin intencional). Gates: pytest 27 incl. nuevos, ruff/pyright/prettier verdes. Tag v0.1.2 → release en curso al cerrar esta entrada.
 
 ---
 
 ## HISTORIAL RELEVANTE (comprimido, detalle completo en session_log_archive.md)
+
+- `Sesión 37 — 2026-10-10` — Reporte app instalada: probes/descargas frozen booteaban servidores anidados (Offline + check lento) → dispatch `-m` por runpy + extractores en el spec (1752/1752 = dev, cold /health 2.2 s) + v0.1.1 publicado (Regla 17.13).
 
 - `Sesión 36 — 2026-10-10` — Pipeline de Release (workflow en tags: bundle+smoke+Inno+zip→GitHub Release) + fix `freeze_support` (Regla 17.10, reserva smoke Fase 16 cerrada) + publicación v0.1.0 tras 3 runs rojos (Reglas 17.11/17.12) con instalador ~145 MB.
 
